@@ -351,12 +351,12 @@ export function MainApp() {
           compact={isCompact}
         />
         {dockMode ? (
-          <Btn icon={<ChevronsRight size={14} />} label="Undock" onClick={() => handleDockRight(dockColumns)} compact={isCompact} />
+          <Btn icon={<ChevronsRight size={14} />} label="Undock" onClick={() => handleDockRight(dockColumns)} compact={isCompact} active />
         ) : (
           <div style={{ position: "relative", display: "flex", flexShrink: 0 }}>
-            <Btn icon={<ChevronsRight size={14} />} label={`Dock ${dockColumns}`} onClick={() => handleDockRight(dockColumns)} compact={isCompact} />
+            <Btn icon={<ChevronsRight size={14} />} label={`Dock ${dockColumns}`} onClick={() => handleDockRight(dockColumns)} compact={isCompact} active />
             <button
-              style={{ ...S.iconBtn, width: isCompact ? 28 : 30, height: isCompact ? 36 : 32, marginLeft: -1, borderTopLeftRadius: 0, borderBottomLeftRadius: 0 }}
+              style={{ ...S.iconBtn, width: isCompact ? 28 : 30, height: isCompact ? 36 : 32, marginLeft: -1, borderTopLeftRadius: 0, borderBottomLeftRadius: 0, background: "#eff6ff", borderColor: "#93c5fd", color: "#2563eb" }}
               onClick={() => setShowDockMenu(v => !v)}
               title="Choose dock layout"
             >
@@ -576,6 +576,8 @@ export function MainApp() {
         /* Prevent native text highlight (blue selection) during drag/rubber-band. */
         * { -webkit-user-select: none; user-select: none; }
         input, textarea { -webkit-user-select: text; user-select: text; }
+        button { transition: transform 90ms ease, filter 90ms ease, box-shadow 140ms ease, background-color 140ms ease; }
+        button:active { transform: translateY(1px) scale(0.98); filter: brightness(0.96); }
       `}</style>
     </div>
   );
@@ -974,7 +976,7 @@ const S: Record<string, React.CSSProperties> = {
   hotkey: { display: "none", fontSize: 11, color: "#94a3b8", background: "#f1f5f9", borderRadius: 6, padding: "4px 8px", border: "1px solid #e2e8f0" },
   galleryBar: { display: "flex", alignItems: "center", gap: 6, padding: "6px 12px", background: "#fafbfc", borderBottom: "1px solid #e8edf3" },
   galleryLabel: { fontSize: 12, fontWeight: 600, color: "#374151", marginRight: 2 },
-  iconBtn: { width: 28, height: 28, borderRadius: 6, border: "1px solid #e2e8f0", background: "white", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: "#64748b", flexShrink: 0 },
+  iconBtn: { width: 28, height: 28, borderRadius: 6, border: "1px solid #e2e8f0", background: "white", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: "#64748b", flexShrink: 0, transition: "all 0.12s ease" },
   galleryArea: { flex: 1, overflowY: "auto" },
   emptyState: { display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100%", padding: 40 },
   statusBar: { display: "flex", alignItems: "center", padding: "5px 14px", background: "white", borderTop: "1px solid #e8edf3", minHeight: 28 },
