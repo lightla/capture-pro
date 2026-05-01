@@ -26,7 +26,8 @@ export function CaptureOverlay() {
   const [error, setError] = useState<string | null>(null);
   const [selection, setSelection] = useState<Rect | null>(null);
   const [saving, setSaving] = useState(false);
-  // cursor always stays crosshair
+  const [cursor, setCursor] = useState<React.CSSProperties["cursor"]>("crosshair");
+  const cursorRef = useRef<React.CSSProperties["cursor"]>("crosshair");
 
   const dragMode = useRef<DragMode>("none");
   const startMouse = useRef({ x: 0, y: 0 });
@@ -153,12 +154,42 @@ export function CaptureOverlay() {
     return "select";
   };
 
+  const cursorForMode = (mode: DragMode): React.CSSProperties["cursor"] => {
+    switch (mode) {
+      case "move":
+        return "move";
+      case "resize-n":
+      case "resize-s":
+        return "ns-resize";
+      case "resize-e":
+      case "resize-w":
+        return "ew-resize";
+      case "resize-ne":
+      case "resize-sw":
+        return "nesw-resize";
+      case "resize-nw":
+      case "resize-se":
+        return "nwse-resize";
+      case "select":
+      case "none":
+      default:
+        return "crosshair";
+    }
+  };
+
+  const setCursorIfChanged = (next: React.CSSProperties["cursor"]) => {
+    if (cursorRef.current === next) return;
+    cursorRef.current = next;
+    setCursor(next);
+  };
+
   const onMouseDown = (e: React.MouseEvent) => {
     if (saving) return; // Only block if CURRENTLY saving
     e.preventDefault();
     const pos = { x: e.clientX, y: e.clientY };
     const zone = selection ? getHitZone(pos, selection) : "select";
     dragMode.current = zone;
+    setCursorIfChanged(cursorForMode(zone));
     startMouse.current = pos;
     startRect.current = selection ? { ...selection } : null;
     if (zone === "select") {
@@ -169,7 +200,9 @@ export function CaptureOverlay() {
   const onMouseMove = (e: React.MouseEvent) => {
     const pos = { x: e.clientX, y: e.clientY };
 
-    // Don't update cursor — always crosshair
+    const hoverZone = selection ? getHitZone(pos, selection) : "select";
+    const effectiveZone = dragMode.current === "none" ? hoverZone : dragMode.current;
+    setCursorIfChanged(cursorForMode(effectiveZone));
     if (dragMode.current === "none") return;
     const dx = pos.x - startMouse.current.x;
     const dy = pos.y - startMouse.current.y;
@@ -197,6 +230,7 @@ export function CaptureOverlay() {
 
   const onMouseUp = () => {
     dragMode.current = "none";
+    setCursorIfChanged("crosshair");
   };
 
   const onDoubleClick = (e: React.MouseEvent) => {
@@ -241,11 +275,12 @@ export function CaptureOverlay() {
 
   return (
     <div
-      style={{ position: "fixed", inset: 0, overflow: "hidden", userSelect: "none", cursor: "crosshair" }}
+      style={{ position: "fixed", inset: 0, overflow: "hidden", userSelect: "none", cursor }}
       onMouseDown={onMouseDown}
       onMouseMove={onMouseMove}
       onMouseUp={onMouseUp}
       onDoubleClick={onDoubleClick}
+      onMouseLeave={() => setCursorIfChanged("crosshair")}
     >
       {/* Screenshot background */}
       <img src={background!} alt="" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover", pointerEvents: "none", display: "block" }} />
