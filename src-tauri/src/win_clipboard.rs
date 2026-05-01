@@ -87,8 +87,38 @@ pub fn set_clipboard_files(paths: &[String]) -> Result<(), String> {
 
         let _ = GlobalUnlock(hmem);
 
-        // Ownership of hmem is transferred to the system on success.
-        set_clipboard_data(CF_HDROP.0 as u32, HANDLE(hmem.0 as isize))
+        // "Preferred DropEffect" = DROPEFFECT_COPY (1).
+        // Some targets only treat CF_HDROP as real file paste when this exists.
+        let effect_format = RegisterClipboardFormatW(windows::core::w!("Preferred DropEffect"));
+        let hmem_effect = GlobalAlloc(GMEM_MOVEABLE, std::mem::size_of::<u32>())
+            .map_err(|e| format!("GlobalAlloc failed: {}", e))?;
+        let ptr_effect = GlobalLock(hmem_effect) as *mut u32;
+        if ptr_effect.is_null() {
+            return Err("GlobalLock failed".to_string());
+        }
+        *ptr_effect = 1; // DROPEFFECT_COPY
+        let _ = GlobalUnlock(hmem_effect);
+
+        // Also provide plain text fallback with one path per line.
+        let text = paths.join("\r\n");
+        let mut wide_text: Vec<u16> = text.encode_utf16().collect();
+        wide_text.push(0);
+        let text_bytes = wide_text.len() * 2;
+        let hmem_text = GlobalAlloc(GMEM_MOVEABLE, text_bytes)
+            .map_err(|e| format!("GlobalAlloc failed: {}", e))?;
+        let ptr_text = GlobalLock(hmem_text) as *mut u16;
+        if ptr_text.is_null() {
+            return Err("GlobalLock failed".to_string());
+        }
+        std::ptr::copy_nonoverlapping(wide_text.as_ptr(), ptr_text, wide_text.len());
+        let _ = GlobalUnlock(hmem_text);
+
+        // Transfer all formats in one transaction.
+        set_clipboard_data_multi(&[
+            (CF_HDROP.0 as u32, HANDLE(hmem.0 as isize)),
+            (effect_format, HANDLE(hmem_effect.0 as isize)),
+            (CF_UNICODETEXT.0 as u32, HANDLE(hmem_text.0 as isize)),
+        ])
     }
 }
 
