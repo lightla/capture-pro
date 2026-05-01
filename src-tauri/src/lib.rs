@@ -236,8 +236,8 @@ fn toggle_dock_main_right(
         .ok_or_else(|| "No monitor found".to_string())?;
 
     let work = monitor.work_area();
-    let dock_width = if dock_columns.unwrap_or(2) == 1 { 360 } else { 520 };
-    let dock_height = work.size.height.max(640);
+    let dock_width = if dock_columns.unwrap_or(2) == 1 { 330 } else { 520 };
+    let dock_height = work.size.height;
     let x = work.position.x + work.size.width as i32 - dock_width;
     let y = work.position.y;
 

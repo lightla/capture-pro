@@ -326,9 +326,11 @@ export function MainApp() {
     <div style={S.root}>
       {/* ── Top Toolbar ─────────────────────────────────────────────────── */}
       <div style={{ ...S.toolbar, gap: isCompact ? 4 : 6, padding: isCompact ? "8px 10px" : "8px 12px" }}>
-        <div style={S.logo}>
-          <Camera style={{ width: 16, height: 16, color: "white" }} />
-        </div>
+        {!dockMode && (
+          <div style={S.logo}>
+            <Camera style={{ width: 16, height: 16, color: "white" }} />
+          </div>
+        )}
         {!isCompact && <span style={S.logoText}>Capture Pro <span style={{ color: "#60a5fa" }}>v2</span></span>}
 
         {!isCompact && <div style={S.toolbarSep} />}
