@@ -689,7 +689,7 @@ function FocusView({ file, settings, onLoadThumb, onPreview, onDelete }: {
         }}
         title="Click to preview"
       >
-        <div style={{ height: "min(62vh, 640px)", background: "#0b1220", display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <div style={{ height: "min(62vh, 640px)", background: "#0b1220", display: "flex", alignItems: "center", justifyContent: "center", padding: 14, boxSizing: "border-box" }}>
           {file.thumbnail ? (
             <img src={file.thumbnail} alt={file.name} style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain", display: "block" }} />
           ) : (

@@ -5,6 +5,8 @@ mod windows_folder_picker;
 mod settings_cache;
 #[cfg(target_os = "windows")]
 mod win_clipboard;
+#[cfg(target_os = "windows")]
+mod win_window_target;
 use tauri::Manager;
 use tauri::Emitter;
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
@@ -22,6 +24,22 @@ struct LastCapture {
 
 #[derive(Default)]
 struct ClipboardState(Mutex<Option<LastCapture>>);
+
+#[derive(Clone, Debug, Default, serde::Serialize)]
+struct PhysicalRect {
+    x: i32,
+    y: i32,
+    width: u32,
+    height: u32,
+}
+
+#[derive(Default)]
+struct OverlayTargetState(Mutex<Option<PhysicalRect>>);
+
+#[tauri::command]
+fn get_last_target_window_rect(state: tauri::State<'_, OverlayTargetState>) -> Option<PhysicalRect> {
+    state.0.lock().ok().and_then(|g| (*g).clone())
+}
 
 #[tauri::command]
 fn set_last_capture_paths(state: tauri::State<'_, ClipboardState>, text_path: String, file_path: Option<String>) {
@@ -78,6 +96,16 @@ async fn show_overlay_impl(app: tauri::AppHandle) {
 
     if let Some(main) = app.get_webview_window("main") {
         let _ = main.hide();
+    }
+
+    // Snapshot the foreground window rect BEFORE showing the overlay.
+    // Once the overlay is visible, it becomes focused/top-most.
+    #[cfg(target_os = "windows")]
+    {
+        if let Ok(mut guard) = app.state::<OverlayTargetState>().0.lock() {
+            *guard = win_window_target::foreground_window_rect()
+                .map(|r| PhysicalRect { x: r.x, y: r.y, width: r.width, height: r.height });
+        }
     }
     if let Some(overlay) = app.get_webview_window("overlay") {
         // Prepare overlay for the next capture without doing heavy cleanup.
@@ -362,6 +390,7 @@ pub fn run() {
         .setup(move |app| {
             app.manage(ClipboardState::default());
             app.manage(SettingsState::default());
+            app.manage(OverlayTargetState::default());
 
             // Minimize-to-tray behavior: keep service running even when user closes the window.
             if let Some(main) = app.get_webview_window("main") {
@@ -467,6 +496,7 @@ pub fn run() {
             set_last_capture_paths,
             set_clipboard_files,
             set_clipboard_text,
+            get_last_target_window_rect,
             close_overlay,
             show_overlay,
             set_always_on_top,

@@ -4,6 +4,7 @@ import { loadSettings } from "@/lib/store";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 
 interface Rect { x: number; y: number; width: number; height: number; }
+interface PhysicalRect { x: number; y: number; width: number; height: number; }
 
 type DragMode = "none" | "select" | "move" | "resize-nw" | "resize-ne" | "resize-sw" | "resize-se" | "resize-n" | "resize-s" | "resize-w" | "resize-e";
 
@@ -210,21 +211,78 @@ export function CaptureOverlay() {
   }, [saving, background]);
 
 
-  // Keyboard: Esc cancel, Enter capture, F1 fullscreen
+  // Keyboard: Esc cancel, Enter capture, F1 fullscreen (set selection), F2 window (set selection), F3 freeform
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") invoke("close_overlay");
       if (e.key === "Enter" && selection) doCapture(selection);
       if (e.key === "F1") {
-        // Full screen capture
+        e.preventDefault();
+        // Full screen selection (no auto-capture)
         const w = window.innerWidth;
         const h = window.innerHeight;
-        doCapture({ x: 0, y: 0, width: w, height: h });
+        dragMode.current = "none";
+        startRect.current = null;
+        setSelection({ x: 0, y: 0, width: w, height: h });
+        cursorRef.current = "move";
+        setCursor("move");
+      }
+      if (e.key === "F2") {
+        e.preventDefault();
+        // Window selection (uses the foreground window snapshot captured right before the overlay was shown)
+        if (!background) return;
+        (async () => {
+          const rect = await invoke<PhysicalRect | null>("get_last_target_window_rect").catch(() => null);
+          if (!rect) {
+            setToast("⚠️ No target window. Trigger capture while the target window is focused, then press F2.");
+            return;
+          }
+
+          const img = new Image();
+          try {
+            await new Promise<void>((res, rej) => {
+              img.onload = () => res();
+              img.onerror = rej;
+              img.src = background;
+            });
+          } catch {
+            return;
+          }
+
+          const scaleX = img.naturalWidth / window.innerWidth;
+          const scaleY = img.naturalHeight / window.innerHeight;
+
+          const x = rect.x / scaleX;
+          const y = rect.y / scaleY;
+          const w = rect.width / scaleX;
+          const h = rect.height / scaleY;
+
+          const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
+          const nx = clamp(x, 0, window.innerWidth);
+          const ny = clamp(y, 0, window.innerHeight);
+          const nw = clamp(w, 1, window.innerWidth - nx);
+          const nh = clamp(h, 1, window.innerHeight - ny);
+
+          dragMode.current = "none";
+          startRect.current = null;
+          setSelection({ x: nx, y: ny, width: nw, height: nh });
+          cursorRef.current = "move";
+          setCursor("move");
+        })();
+      }
+      if (e.key === "F3") {
+        e.preventDefault();
+        // Freeform mode: clear selection and let user draw again
+        dragMode.current = "none";
+        startRect.current = null;
+        setSelection(null);
+        cursorRef.current = "crosshair";
+        setCursor("crosshair");
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [selection, doCapture]);
+  }, [selection, doCapture, background]);
 
   // Hit-test handle areas
   const getHitZone = (pos: { x: number; y: number }, sel: Rect): DragMode => {
