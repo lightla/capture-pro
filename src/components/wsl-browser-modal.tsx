@@ -1,9 +1,41 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { loadSettings, saveSettings } from "@/lib/store";
-import { Folder, ChevronRight, Home, Check, X, ChevronUp } from "lucide-react";
+import { Folder, ChevronRight, Home, Check, X, ChevronUp, ChevronDown } from "lucide-react";
 
 interface WslDistro { name: string; is_default: boolean; }
+
+function tryParseWslUncPath(picked: string): { distro: string; path: string } | null {
+  const p = (picked || "").trim();
+  const m =
+    p.match(/^\\\\wsl\.localhost\\([^\\]+)\\(.*)$/i) ||
+    p.match(/^\\\\wsl\\([^\\]+)\\(.*)$/i);
+  if (!m) return null;
+  const distro = (m[1] || "").trim();
+  const rest = (m[2] || "").replace(/\\/g, "/");
+  const path = "/" + rest.replace(/^\/+/, "");
+  if (!distro || !path.startsWith("/")) return null;
+  return { distro, path: path === "/" ? "/" : path.replace(/\/+$/g, "") };
+}
+
+function WindowsMark({ size = 14 }: { size?: number }) {
+  const s = size;
+  return (
+    <svg
+      width={s}
+      height={s}
+      viewBox="0 0 16 16"
+      aria-hidden="true"
+      focusable="false"
+      style={{ display: "block" }}
+    >
+      <rect x="1" y="1" width="6" height="6" rx="1.2" fill="#60a5fa" />
+      <rect x="9" y="1" width="6" height="6" rx="1.2" fill="#3b82f6" />
+      <rect x="1" y="9" width="6" height="6" rx="1.2" fill="#3b82f6" />
+      <rect x="9" y="9" width="6" height="6" rx="1.2" fill="#2563eb" />
+    </svg>
+  );
+}
 
 export function WslBrowserModal({ onClose }: { onClose: () => void }) {
   const cfg = loadSettings();
@@ -17,8 +49,51 @@ export function WslBrowserModal({ onClose }: { onClose: () => void }) {
   const [winDirs, setWinDirs] = useState<string[]>([]);
   const [winLoading, setWinLoading] = useState(false);
   const [clipMode, setClipMode] = useState<"paths"|"files">(cfg.clipboardMode || "paths");
-  const [saved, setSaved] = useState(false);
   const [error, setError] = useState("");
+  const [systemPickBusy, setSystemPickBusy] = useState(false);
+  const [showDistroMenu, setShowDistroMenu] = useState(false);
+  const distroMenuRef = useRef<HTMLDivElement | null>(null);
+
+  const pickWindowsFolder = async (defaultPath: string | null) => {
+    setSystemPickBusy(true);
+    try {
+      return await invoke<string | null>("pick_windows_folder", { default_path: defaultPath }).catch(() => null);
+    } finally {
+      setSystemPickBusy(false);
+    }
+  };
+
+  const systemPickWsl = async () => {
+    if (!distro) return;
+    setError("");
+    const picked = await pickWindowsFolder(null);
+    if (!picked) return;
+    const unc = tryParseWslUncPath(picked);
+    if (unc) {
+      const inList = distros.length === 0 || distros.some(d => d.name === unc.distro);
+      if (!inList) {
+        setError(`Picked a WSL folder in '${unc.distro}', but that distro isn't available.`);
+        return;
+      }
+      if (unc.distro !== distro) {
+        setDistro(unc.distro);
+      }
+      setPath(unc.path || "/");
+      return;
+    }
+
+    try {
+      const converted = await invoke<string>("windows_path_to_wsl", { distro, windows_path: picked });
+      setPath((converted || "").trim() || "/");
+    } catch (e) {
+      setError(String(e || "Failed to convert path via wslpath"));
+    }
+  };
+
+  const systemPickWindows = async () => {
+    const picked = await pickWindowsFolder(winNormalize(winPath) || null);
+    if (picked) setWinPath(picked);
+  };
 
   useEffect(() => {
     if (saveTarget !== "wsl") return;
@@ -30,6 +105,18 @@ export function WslBrowserModal({ onClose }: { onClose: () => void }) {
       }
     }).catch(() => setError("Cannot list WSL distros"));
   }, [saveTarget]);
+
+  useEffect(() => {
+    if (!showDistroMenu) return;
+    const onDown = (e: MouseEvent) => {
+      const t = e.target as Node | null;
+      if (!t) return;
+      if (distroMenuRef.current && distroMenuRef.current.contains(t)) return;
+      setShowDistroMenu(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [showDistroMenu]);
 
   useEffect(() => {
     if (saveTarget !== "wsl") return;
@@ -120,14 +207,13 @@ export function WslBrowserModal({ onClose }: { onClose: () => void }) {
       windowsSavePath: saveTarget === "windows" ? winNormalize(winPath) : "",
       clipboardMode: clipMode
     });
-    setSaved(true);
-    setTimeout(() => { setSaved(false); onClose(); }, 800);
+    onClose();
   };
 
   const breadcrumbs = path.split("/").filter(Boolean);
 
   return (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 9999 }}>
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 10000 }}>
       <div style={{ background: "white", borderRadius: 16, width: 560, maxHeight: "90vh", display: "flex", flexDirection: "column", boxShadow: "0 20px 60px rgba(0,0,0,0.25)", overflow: "hidden" }}>
 
         {/* Header */}
@@ -152,13 +238,30 @@ export function WslBrowserModal({ onClose }: { onClose: () => void }) {
                   key={t}
                   onClick={() => { setSaveTarget(t); setError(""); }}
                   style={{
-                    flex: 1, padding: "10px 0", borderRadius: 10, cursor: "pointer", fontSize: 12, fontWeight: 600, transition: "all 0.15s",
+                    flex: 1,
+                    padding: "10px 0",
+                    borderRadius: 10,
+                    cursor: "pointer",
+                    fontSize: 12,
+                    fontWeight: 600,
+                    transition: "all 0.15s",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
                     border: saveTarget === t ? "1px solid #93c5fd" : "1px solid #e2e8f0",
                     background: saveTarget === t ? "#eff6ff" : "white",
                     color: saveTarget === t ? "#2563eb" : "#64748b",
                   }}
                 >
-                  {t === "windows" ? "🪟 Windows" : "🐧 WSL"}
+                  {t === "windows" ? (
+                    <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+                      <WindowsMark size={14} /> Windows
+                    </span>
+                  ) : (
+                    <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+                      <span style={{ fontSize: 18, lineHeight: 1 }}>🐧</span> WSL
+                    </span>
+                  )}
                 </button>
               ))}
             </div>
@@ -169,16 +272,102 @@ export function WslBrowserModal({ onClose }: { onClose: () => void }) {
           <div>
             <label style={L.label}>WSL Distribution</label>
             <div style={{ display: "flex", gap: 8 }}>
-              <select
-                value={distro}
-                onChange={e => { setDistro(e.target.value); setPath("/"); }}
-                style={{ flex: 1, height: 38, borderRadius: 9, border: "1px solid #e2e8f0", padding: "0 12px", fontSize: 13, background: "#fafbfc", outline: "none" }}
-              >
-                {distros.length === 0 && <option value="">Loading...</option>}
-                {distros.map(d => (
-                  <option key={d.name} value={d.name}>{d.name}{d.is_default ? " (Default)" : ""}</option>
-                ))}
-              </select>
+              <div ref={distroMenuRef} style={{ position: "relative", flex: 1 }}>
+                <button
+                  onClick={() => setShowDistroMenu(v => !v)}
+                  style={{
+                    width: "100%",
+                    height: 40,
+                    borderRadius: 10,
+                    border: showDistroMenu ? "1px solid #93c5fd" : "1px solid #cbd5e1",
+                    background: "white",
+                    cursor: "pointer",
+                    fontSize: 13,
+                    padding: "0 12px",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    gap: 10,
+                    boxShadow: showDistroMenu ? "0 4px 16px rgba(59,130,246,0.18)" : "0 1px 3px rgba(0,0,0,0.06)",
+                    color: distro ? "#0f172a" : "#94a3b8",
+                    outline: "none",
+                  }}
+                  title={distro ? distro : "Select a distro"}
+                >
+                  <span style={{ flex: 1, textAlign: "left", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontWeight: 600 }}>
+                    {distro || (distros.length ? "Select a distro..." : "Loading...")}
+                  </span>
+                  <ChevronDown size={14} style={{ color: showDistroMenu ? "#2563eb" : "#94a3b8", flexShrink: 0 }} />
+                </button>
+
+                {showDistroMenu && (
+                  <div
+                    style={{
+                      position: "absolute",
+                      top: "calc(100% + 6px)",
+                      left: 0,
+                      right: 0,
+                      zIndex: 10060,
+                      background: "white",
+                      border: "1px solid #e2e8f0",
+                      borderRadius: 10,
+                      boxShadow: "0 16px 40px rgba(15,23,42,0.16)",
+                      padding: 6,
+                      maxHeight: 260,
+                      overflowY: "auto",
+                    }}
+                  >
+                    {distros.map(d => {
+                      const active = d.name === distro;
+                      return (
+                        <button
+                          key={d.name}
+                          onClick={() => {
+                            setDistro(d.name);
+                            setPath("/");
+                            setShowDistroMenu(false);
+                            setError("");
+                          }}
+                          style={{
+                            width: "100%",
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 10,
+                            padding: "10px 10px",
+                            borderRadius: 8,
+                            border: active ? "1px solid #93c5fd" : "1px solid transparent",
+                            background: active ? "#eff6ff" : "transparent",
+                            cursor: "pointer",
+                            color: active ? "#2563eb" : "#0f172a",
+                            fontSize: 13,
+                            fontWeight: active ? 700 : 600,
+                            textAlign: "left",
+                          }}
+                          onMouseEnter={(e) => {
+                            const el = e.currentTarget as HTMLButtonElement;
+                            if (active) return;
+                            el.style.background = "#eff6ff";
+                            el.style.color = "#2563eb";
+                          }}
+                          onMouseLeave={(e) => {
+                            const el = e.currentTarget as HTMLButtonElement;
+                            if (active) return;
+                            el.style.background = "transparent";
+                            el.style.color = "#0f172a";
+                          }}
+                        >
+                          <span style={{ width: 18, display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                            {active ? <Check size={14} /> : null}
+                          </span>
+                          <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                            {d.name}{d.is_default ? " (Default)" : ""}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
               <button onClick={goHome} style={L.iconBtn} title="Go to home"><Home size={14} /></button>
             </div>
           </div>
@@ -192,8 +381,35 @@ export function WslBrowserModal({ onClose }: { onClose: () => void }) {
               <span style={{ fontSize: 10, color: "#94a3b8", fontFamily: "monospace" }}>{distro}:{path}</span>
             </div>
 
+            <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+              <button
+                onClick={systemPickWsl}
+                disabled={!distro || systemPickBusy}
+                style={{
+                  flex: 1,
+                  padding: "9px 12px",
+                  borderRadius: 10,
+                  border: "1px solid #cbd5e1",
+                  background: "white",
+                  cursor: !distro || systemPickBusy ? "not-allowed" : "pointer",
+                  fontSize: 12,
+                  fontWeight: 600,
+                  color: "#2563eb",
+                  opacity: !distro || systemPickBusy ? 0.6 : 1,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: 8,
+                  boxShadow: "0 1px 3px rgba(0,0,0,0.06)",
+                }}
+                title="Pick a Windows folder and convert to WSL path"
+              >
+                System picker
+              </button>
+            </div>
+
             {/* Breadcrumb */}
-            <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 2, padding: "8px 12px", background: "#f8fafc", borderRadius: 10, border: "1px solid #f1f5f9", marginBottom: 8, fontSize: 12 }}>
+            <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 2, padding: "8px 12px", background: "#f8fafc", borderRadius: 10, border: "1px solid #cbd5e1", marginBottom: 8, fontSize: 12 }}>
               <span onClick={() => setPath("/")} style={L.crumb("/"===path)}>root</span>
               {breadcrumbs.map((part, i) => {
                 const to = "/" + breadcrumbs.slice(0, i+1).join("/");
@@ -212,7 +428,7 @@ export function WslBrowserModal({ onClose }: { onClose: () => void }) {
             </div>
 
             {/* Dir grid */}
-            <div style={{ height: 220, overflowY: "auto", border: "1px solid #f1f5f9", borderRadius: 12, padding: 10, background: "#fafafa" }}>
+            <div style={{ height: 220, overflowY: "auto", border: "1px solid #cbd5e1", borderRadius: 12, padding: 10, background: "#fafafa" }}>
               {loading ? (
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", flexDirection: "column", gap: 8, color: "#94a3b8" }}>
                   <div style={{ width: 24, height: 24, border: "2px solid #e2e8f0", borderTopColor: "#3b82f6", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
@@ -245,6 +461,32 @@ export function WslBrowserModal({ onClose }: { onClose: () => void }) {
               <span style={{ fontSize: 10, color: "#94a3b8", fontFamily: "monospace" }}>{winNormalize(winPath) || "—"}</span>
             </div>
 
+            <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+              <button
+                onClick={systemPickWindows}
+                disabled={systemPickBusy}
+                style={{
+                  flex: 1,
+                  padding: "9px 12px",
+                  borderRadius: 10,
+                  border: "1px solid #cbd5e1",
+                  background: "white",
+                  cursor: systemPickBusy ? "not-allowed" : "pointer",
+                  fontSize: 12,
+                  fontWeight: 600,
+                  color: "#2563eb",
+                  opacity: systemPickBusy ? 0.6 : 1,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: 8,
+                  boxShadow: "0 1px 3px rgba(0,0,0,0.06)",
+                }}
+              >
+                System picker
+              </button>
+            </div>
+
             {(() => {
               const p = winNormalize(winPath) || "C:\\";
               const m = p.match(/^([a-zA-Z]:)\\?(.*)$/);
@@ -258,7 +500,7 @@ export function WslBrowserModal({ onClose }: { onClose: () => void }) {
               };
 
               return (
-                <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 2, padding: "8px 12px", background: "#f8fafc", borderRadius: 10, border: "1px solid #f1f5f9", marginBottom: 8, fontSize: 12 }}>
+                <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 2, padding: "8px 12px", background: "#f8fafc", borderRadius: 10, border: "1px solid #cbd5e1", marginBottom: 8, fontSize: 12 }}>
                   {crumbs.map((part, i) => (
                     <span key={i} style={{ display: "flex", alignItems: "center", gap: 2 }}>
                       {i > 0 && <ChevronRight size={11} style={{ color: "#cbd5e1" }} />}
@@ -275,7 +517,7 @@ export function WslBrowserModal({ onClose }: { onClose: () => void }) {
               );
             })()}
 
-            <div style={{ height: 220, overflowY: "auto", border: "1px solid #f1f5f9", borderRadius: 12, padding: 10, background: "#fafafa" }}>
+            <div style={{ height: 220, overflowY: "auto", border: "1px solid #cbd5e1", borderRadius: 12, padding: 10, background: "#fafafa" }}>
               {winLoading ? (
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", flexDirection: "column", gap: 8, color: "#94a3b8" }}>
                   <div style={{ width: 24, height: 24, border: "2px solid #e2e8f0", borderTopColor: "#3b82f6", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
@@ -301,18 +543,6 @@ export function WslBrowserModal({ onClose }: { onClose: () => void }) {
               )}
             </div>
 
-            <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 6 }}>
-              Tip: browse like WSL, then click Save Settings.{" "}
-              <button
-                onClick={async () => {
-                  const picked = await invoke<string | null>("pick_windows_folder", { default_path: winNormalize(winPath) || null }).catch(() => null);
-                  if (picked) setWinPath(picked);
-                }}
-                style={{ fontSize: 11, color: "#3b82f6", background: "none", border: "none", cursor: "pointer", padding: 0 }}
-              >
-                Use system picker
-              </button>
-            </div>
           </div>
           )}
 
@@ -351,8 +581,8 @@ export function WslBrowserModal({ onClose }: { onClose: () => void }) {
           </div>
           <div style={{ display: "flex", gap: 8 }}>
             <button onClick={onClose} style={{ padding: "9px 18px", borderRadius: 10, border: "1px solid #e2e8f0", background: "white", cursor: "pointer", fontSize: 13, color: "#64748b" }}>Cancel</button>
-            <button onClick={handleSave} style={{ padding: "9px 22px", borderRadius: 10, border: "none", background: saved ? "#16a34a" : "#2563eb", color: "white", cursor: "pointer", fontSize: 13, fontWeight: 600, display: "flex", alignItems: "center", gap: 6, transition: "all 0.2s" }}>
-              {saved && <Check size={14} />} {saved ? "Saved!" : "Save Settings"}
+            <button onClick={handleSave} style={{ padding: "9px 22px", borderRadius: 10, border: "none", background: "linear-gradient(135deg, #3b82f6, #2563eb)", color: "#bfdbfe", cursor: "pointer", fontSize: 13, fontWeight: 500, display: "flex", alignItems: "center", gap: 6, transition: "all 0.2s" }}>
+              Save
             </button>
           </div>
         </div>

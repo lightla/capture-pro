@@ -105,6 +105,21 @@ pub async fn get_wsl_home_directory(distro: String) -> Result<String, String> {
 }
 
 #[tauri::command]
+pub async fn windows_path_to_wsl(distro: String, windows_path: String) -> Result<String, String> {
+    let output = wsl_command()
+        .args(["-d", &distro, "--", "wslpath", "-a", "-u", &windows_path])
+        .output()
+        .map_err(|e| e.to_string())?;
+
+    if !output.status.success() {
+        let err = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        return Err(if err.is_empty() { "Failed to convert path via wslpath".to_string() } else { err });
+    }
+
+    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+}
+
+#[tauri::command]
 pub async fn list_wsl_image_files(distro: String, path: String) -> Result<Vec<String>, String> {
     // List .png files in the given WSL directory, sorted by modification time (newest first)
     let cmd = format!(

@@ -666,6 +666,7 @@ pub fn run() {
             wsl::list_wsl_distros,
             wsl::list_wsl_directories,
             wsl::get_wsl_home_directory,
+            wsl::windows_path_to_wsl,
             wsl::write_wsl_file,
             wsl::write_wsl_base64_file,
             wsl::queue_wsl_base64_write,

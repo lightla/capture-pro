@@ -75,11 +75,10 @@ export function SettingsPanel() {
             <label style={s.label}>Folder</label>
             <div style={s.readonlyBox}>
               {settings.saveTarget === "windows"
-                ? (settings.windowsSavePath || "Not set — configure in Browse tab")
-                : (settings.distro && settings.savePath ? `${settings.distro}:${settings.savePath}` : "Not set — configure in Browse tab")
+                ? (settings.windowsSavePath || "Not set — open Settings (⚙) to configure")
+                : (settings.distro && settings.savePath ? `${settings.distro}:${settings.savePath}` : "Not set — open Settings (⚙) to configure")
               }
             </div>
-            <div style={s.hint}>Change this by selecting a folder in the Browse tab</div>
           </div>
         </div>
       </div>
@@ -160,9 +159,20 @@ export function SettingsPanel() {
         <button
           onClick={handleSave}
           style={{
-            padding: "10px 28px", borderRadius: 10, background: saved ? "#16a34a" : "#2563eb",
-            color: "white", border: "none", fontWeight: 600, fontSize: 13, cursor: "pointer",
-            boxShadow: "0 4px 12px rgba(37,99,235,0.25)", transition: "all 0.2s ease"
+            padding: "10px 28px",
+            borderRadius: 10,
+            background: saved
+              ? "linear-gradient(135deg, #16a34a, #15803d)"
+              : "linear-gradient(135deg, #3b82f6, #2563eb)",
+            color: saved ? "white" : "#93c5fd",
+            border: "none",
+            fontWeight: 600,
+            fontSize: 13,
+            cursor: "pointer",
+            boxShadow: saved
+              ? "0 4px 12px rgba(22,163,74,0.28)"
+              : "0 4px 12px rgba(37,99,235,0.25)",
+            transition: "all 0.2s ease"
           }}
         >
           {saved ? "✓ Saved!" : "Save Settings"}

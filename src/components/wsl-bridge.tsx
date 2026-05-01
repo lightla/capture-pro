@@ -156,9 +156,14 @@ export function WslBridge({ onSaved }: WslBridgeProps) {
             <SelectTrigger style={{ width: "100%", height: 40, fontSize: 13, borderRadius: 10, border: "1px solid #e2e8f0", background: "#fafbfc" }}>
               <SelectValue placeholder="Select a WSL distro..." />
             </SelectTrigger>
-            <SelectContent style={{ zIndex: 9999 }}>
+            <SelectContent style={{ zIndex: 9999 }} className="bg-white text-slate-700 ring-1 ring-slate-200 shadow-lg">
               {distros.map((d) => (
-                <SelectItem key={d.name} value={d.name} style={{ fontSize: 13 }}>
+                <SelectItem
+                  key={d.name}
+                  value={d.name}
+                  style={{ fontSize: 13 }}
+                  className="cursor-pointer rounded-md px-2.5 py-2 text-[13px] focus:bg-blue-50 focus:text-blue-700 data-[state=checked]:bg-blue-50 data-[state=checked]:text-blue-700"
+                >
                   {d.name} {d.is_default ? " ✓ Default" : ""}
                 </SelectItem>
               ))}
