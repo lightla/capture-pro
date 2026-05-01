@@ -118,7 +118,17 @@ pub async fn read_wsl_image_as_base64(distro: String, path: String) -> Result<St
     }
 
     let b64 = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    Ok(format!("data:image/png;base64,{}", b64))
+    let lower = path.to_lowercase();
+    let mime = if lower.ends_with(".jpg") || lower.ends_with(".jpeg") {
+        "image/jpeg"
+    } else if lower.ends_with(".gif") {
+        "image/gif"
+    } else if lower.ends_with(".webp") {
+        "image/webp"
+    } else {
+        "image/png"
+    };
+    Ok(format!("data:{};base64,{}", mime, b64))
 }
 
 #[tauri::command]

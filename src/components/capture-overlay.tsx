@@ -84,12 +84,8 @@ export function CaptureOverlay() {
     if (saving || !sel || sel.width < 4 || sel.height < 4 || !background) return;
     setSaving(true);
     try {
-      const canvas = document.createElement("canvas");
       const w = Math.max(1, Math.round(sel.width));
       const h = Math.max(1, Math.round(sel.height));
-      canvas.width = w;
-      canvas.height = h;
-      const ctx = canvas.getContext("2d")!;
       const img = new Image();
       await new Promise<void>((res, rej) => {
         img.onload = () => res();
@@ -98,12 +94,14 @@ export function CaptureOverlay() {
       });
       const scaleX = img.naturalWidth / window.innerWidth;
       const scaleY = img.naturalHeight / window.innerHeight;
-      ctx.drawImage(
-        img,
-        sel.x * scaleX, sel.y * scaleY, w * scaleX, h * scaleY,
-        0, 0, w, h
-      );
-      const dataUrl = canvas.toDataURL("image/png");
+
+      // IMPORTANT: Don't crop from the JPEG preview (can look slightly blurry).
+      // Re-capture the selected region from the OS as PNG for best quality.
+      const x = Math.round(sel.x * scaleX);
+      const y = Math.round(sel.y * scaleY);
+      const pw = Math.max(1, Math.round(w * scaleX));
+      const ph = Math.max(1, Math.round(h * scaleY));
+      const dataUrl = await invoke<string>("capture_region_clean", { x, y, width: pw, height: ph });
 
       const settings = loadSettings();
       const distro = settings.distro || "Ubuntu-24.04";

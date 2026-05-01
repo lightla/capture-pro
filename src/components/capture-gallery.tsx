@@ -18,6 +18,8 @@ export function CaptureGallery() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [lastSelected, setLastSelected] = useState<string | null>(null);
   const [preview, setPreview] = useState<CaptureFile | null>(null);
+  const [previewDataUrl, setPreviewDataUrl] = useState<string | null>(null);
+  const [previewMode, setPreviewMode] = useState<"actual" | "fit">("actual");
   const [error, setError] = useState<string | null>(null);
 
   const settings = loadSettings();
@@ -67,6 +69,37 @@ export function CaptureGallery() {
       );
     }
   };
+
+  useEffect(() => {
+    let cancelled = false;
+    const run = async () => {
+      if (!preview) {
+        setPreviewDataUrl(null);
+        return;
+      }
+      setPreviewMode("actual");
+      if (preview.thumbnail) {
+        setPreviewDataUrl(preview.thumbnail);
+        return;
+      }
+      setPreviewDataUrl(null);
+      try {
+        const data = await invoke<string>("read_wsl_image_as_base64", {
+          distro: settings.distro,
+          path: preview.path,
+        });
+        if (cancelled) return;
+        setPreviewDataUrl(data);
+      } catch {
+        if (cancelled) return;
+        setPreviewDataUrl(null);
+      }
+    };
+    run();
+    return () => {
+      cancelled = true;
+    };
+  }, [preview, settings.distro]);
 
   const handleSelect = (file: CaptureFile, e: React.MouseEvent) => {
     const newSet = new Set(selected);
@@ -238,12 +271,35 @@ export function CaptureGallery() {
           <div style={s.previewBox} onClick={(e) => e.stopPropagation()}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               <span style={{ fontWeight: 600, fontSize: 14, color: "#1e293b" }}>{preview.name}</span>
-              <button onClick={() => setPreview(null)} style={{ background: "none", border: "none", cursor: "pointer", color: "#94a3b8" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <button
+                  onClick={() => setPreviewMode((m) => (m === "actual" ? "fit" : "actual"))}
+                  style={{ background: "white", border: "1px solid #e2e8f0", cursor: "pointer", color: "#334155", fontSize: 11, padding: "6px 10px", borderRadius: 8 }}
+                  title={previewMode === "actual" ? "Fit to window" : "Show 1:1 pixels"}
+                >
+                  {previewMode === "actual" ? "Fit" : "1:1"}
+                </button>
+                <button onClick={() => setPreview(null)} style={{ background: "none", border: "none", cursor: "pointer", color: "#94a3b8" }}>
                 <X style={{ width: 18, height: 18 }} />
               </button>
+              </div>
             </div>
-            {preview.thumbnail ? (
-              <img src={preview.thumbnail} alt={preview.name} style={{ maxWidth: "100%", maxHeight: "60vh", objectFit: "contain", borderRadius: 8, border: "1px solid #f1f5f9" }} />
+            {previewDataUrl ? (
+              <div
+                style={{ borderRadius: 8, border: "1px solid #f1f5f9", background: "#0b1220", overflow: "auto", maxHeight: "70vh" }}
+                onDoubleClick={() => setPreviewMode((m) => (m === "actual" ? "fit" : "actual"))}
+                title="Double-click to toggle Fit / 1:1"
+              >
+                <img
+                  src={previewDataUrl}
+                  alt={preview.name}
+                  style={
+                    previewMode === "fit"
+                      ? { maxWidth: "100%", maxHeight: "70vh", objectFit: "contain", display: "block", margin: "0 auto" }
+                      : { maxWidth: "none", maxHeight: "none", display: "block" }
+                  }
+                />
+              </div>
             ) : (
               <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: 200, color: "#94a3b8" }}>
                 <RefreshCw style={{ width: 24, height: 24, animation: "spin 1s linear infinite" }} />

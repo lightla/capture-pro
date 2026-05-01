@@ -2,7 +2,8 @@ use screenshots::Screen;
 use base64::{Engine as _, engine::general_purpose};
 use std::io::Cursor;
 use image::ImageFormat;
-use std::time::Instant;
+use std::time::{Duration, Instant};
+use tauri::Manager;
 
 #[cfg(target_os = "windows")]
 fn overlay_cursor_on_capture(image: &mut image::RgbaImage, origin_x: i32, origin_y: i32) {
@@ -298,4 +299,36 @@ pub async fn capture_region(x: i32, y: i32, width: u32, height: u32) -> Result<S
     tauri::async_runtime::spawn_blocking(move || capture_region_blocking(x, y, width, height))
         .await
         .map_err(|e| format!("Capture task failed: {}", e))?
+}
+
+#[tauri::command]
+pub async fn capture_region_clean(
+    app: tauri::AppHandle,
+    x: i32,
+    y: i32,
+    width: u32,
+    height: u32,
+) -> Result<String, String> {
+    if let Some(overlay) = app.get_webview_window("overlay") {
+        let _ = overlay.hide();
+    }
+
+    // Give the compositor a moment so the overlay border/handles won't be captured.
+    // Run the wait inside spawn_blocking to avoid blocking the async runtime thread.
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        std::thread::sleep(Duration::from_millis(140));
+        capture_region_blocking(x, y, width, height)
+    })
+    .await
+    .map_err(|e| format!("Capture task failed: {}", e))?;
+
+    // If capture failed, re-show overlay so the user can retry.
+    if result.is_err() {
+        if let Some(overlay) = app.get_webview_window("overlay") {
+            let _ = overlay.show();
+            let _ = overlay.set_focus();
+        }
+    }
+
+    result
 }

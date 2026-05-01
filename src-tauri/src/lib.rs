@@ -115,6 +115,7 @@ pub fn run() {
             capture::capture_full_screen,
             capture::capture_full_screen_preview,
             capture::capture_region,
+            capture::capture_region_clean,
             close_overlay,
             show_overlay,
             set_always_on_top,
