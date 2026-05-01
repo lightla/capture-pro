@@ -115,6 +115,9 @@ async fn show_overlay_impl(app: tauri::AppHandle) {
     if let Some(main) = app.get_webview_window("main") {
         let _ = main.hide();
     }
+    // Give Windows a moment to actually hide the window before we take the screenshot,
+    // otherwise the app can end up captured in the background.
+    std::thread::sleep(std::time::Duration::from_millis(120));
 
     // Snapshot the foreground window rect BEFORE showing the overlay.
     // Once the overlay is visible, it becomes focused/top-most.

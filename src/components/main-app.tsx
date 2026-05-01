@@ -212,6 +212,7 @@ export function MainApp() {
 
   // Actions
   const handleCapture = async () => {
+    setShowDockMenu(false);
     await invoke("show_overlay").catch(console.error);
   };
 
@@ -938,7 +939,7 @@ function Btn({ icon, label, onClick, primary, active, small, danger, disabled, c
   primary?: boolean; active?: boolean; small?: boolean; danger?: boolean; disabled?: boolean; compact?: boolean;
 }) {
   const primaryBg = "linear-gradient(135deg, #3b82f6, #2563eb)";
-  const primaryFg = "#93c5fd";
+  const primaryFg = "#bfdbfe";
   return (
     <button
       onClick={onClick}
