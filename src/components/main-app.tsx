@@ -213,6 +213,10 @@ export function MainApp() {
   // Actions
   const handleCapture = async () => {
     setShowDockMenu(false);
+    // Hide the main window immediately so the user doesn't see the UI while capture is starting.
+    // The backend will also hide it again defensively before grabbing the screenshot.
+    await invoke("hide_main_window").catch(() => {});
+    await new Promise<void>(r => setTimeout(r, 30));
     await invoke("show_overlay").catch(console.error);
   };
 

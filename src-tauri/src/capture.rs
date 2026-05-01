@@ -2,7 +2,9 @@ use screenshots::Screen;
 use base64::{Engine as _, engine::general_purpose};
 use std::io::Cursor;
 use image::ImageFormat;
-use std::time::{Duration, Instant};
+use std::time::Instant;
+#[cfg(not(target_os = "windows"))]
+use std::time::Duration;
 use tauri::Manager;
 
 #[cfg(target_os = "windows")]
@@ -309,13 +311,36 @@ pub async fn capture_region_clean(
     width: u32,
     height: u32,
 ) -> Result<String, String> {
-    if let Some(overlay) = app.get_webview_window("overlay") {
-        let _ = overlay.hide();
+    #[cfg(target_os = "windows")]
+    fn flush_compositor() {
+        unsafe {
+            use windows::Win32::Graphics::Dwm::DwmFlush;
+            let _ = DwmFlush();
+            let _ = DwmFlush();
+        }
     }
 
-    // Give the compositor a moment so the overlay border/handles won't be captured.
-    // Run the wait inside spawn_blocking to avoid blocking the async runtime thread.
+    if let Some(overlay) = app.get_webview_window("overlay") {
+        let _ = overlay.hide();
+        #[cfg(target_os = "windows")]
+        {
+            for _ in 0..40 {
+                match overlay.is_visible() {
+                    Ok(true) => {
+                        flush_compositor();
+                        std::thread::sleep(std::time::Duration::from_millis(5));
+                    }
+                    Ok(false) => break,
+                    Err(_) => break,
+                }
+            }
+        }
+    }
+
     let result = tauri::async_runtime::spawn_blocking(move || {
+        #[cfg(target_os = "windows")]
+        flush_compositor();
+        #[cfg(not(target_os = "windows"))]
         std::thread::sleep(Duration::from_millis(140));
         capture_region_blocking(x, y, width, height)
     })

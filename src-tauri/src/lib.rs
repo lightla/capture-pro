@@ -14,6 +14,51 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use settings_cache::{SettingsState};
 
+#[cfg(target_os = "windows")]
+use windows::Win32::Graphics::Dwm::DwmFlush;
+#[cfg(target_os = "windows")]
+use windows::Win32::UI::WindowsAndMessaging::{SetWindowDisplayAffinity, WDA_EXCLUDEFROMCAPTURE, WDA_NONE};
+
+#[cfg(target_os = "windows")]
+fn flush_compositor() {
+    // Ensure previous hide/show operations are committed by DWM before we capture the screen,
+    // otherwise we can end up with a faint ghost of our window in the screenshot.
+    unsafe {
+        let _ = DwmFlush();
+        let _ = DwmFlush();
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn wait_hidden(window: &tauri::WebviewWindow) {
+    // Don't rely on a fixed sleep; instead, poll visibility briefly so capture starts as soon
+    // as the compositor actually drops the window.
+    for _ in 0..40 {
+        match window.is_visible() {
+            Ok(true) => {
+                flush_compositor();
+                std::thread::sleep(std::time::Duration::from_millis(5));
+            }
+            Ok(false) => break,
+            Err(_) => break,
+        }
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn set_exclude_from_capture(window: &tauri::WebviewWindow, exclude: bool) {
+    // Best-effort: prevent our UI from appearing in screen capture even if the compositor
+    // hasn't fully removed the window yet.
+    if let Ok(hwnd) = window.hwnd() {
+        unsafe {
+            let _ = SetWindowDisplayAffinity(
+                windows::Win32::Foundation::HWND(hwnd.0 as isize),
+                if exclude { WDA_EXCLUDEFROMCAPTURE } else { WDA_NONE },
+            );
+        }
+    }
+}
+
 static ALLOW_EXIT: AtomicBool = AtomicBool::new(false);
 
 #[derive(Clone, Debug, Default)]
@@ -113,11 +158,14 @@ async fn show_overlay_impl(app: tauri::AppHandle) {
     }
 
     if let Some(main) = app.get_webview_window("main") {
+        #[cfg(target_os = "windows")]
+        set_exclude_from_capture(&main, true);
         let _ = main.hide();
+        #[cfg(target_os = "windows")]
+        wait_hidden(&main);
     }
-    // Give Windows a moment to actually hide the window before we take the screenshot,
-    // otherwise the app can end up captured in the background.
-    std::thread::sleep(std::time::Duration::from_millis(120));
+    #[cfg(target_os = "windows")]
+    flush_compositor();
 
     // Snapshot the foreground window rect BEFORE showing the overlay.
     // Once the overlay is visible, it becomes focused/top-most.
@@ -133,9 +181,12 @@ async fn show_overlay_impl(app: tauri::AppHandle) {
         // This ensures old selection/rectangle is cleared immediately.
         let _ = overlay.eval("window.__captureProPrepForShow && window.__captureProPrepForShow();");
         let _ = overlay.hide();
+        #[cfg(target_os = "windows")]
+        wait_hidden(&overlay);
     }
 
-    std::thread::sleep(std::time::Duration::from_millis(180));
+    #[cfg(target_os = "windows")]
+    flush_compositor();
     let background = capture::capture_full_screen_preview().await;
 
     if let Some(overlay) = app.get_webview_window("overlay") {
@@ -167,6 +218,8 @@ fn close_overlay(app: tauri::AppHandle) {
     }
     // Show main window again
     if let Some(main) = app.get_webview_window("main") {
+        #[cfg(target_os = "windows")]
+        set_exclude_from_capture(&main, false);
         let _ = main.show();
         let _ = main.set_focus();
     }
