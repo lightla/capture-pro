@@ -47,6 +47,7 @@ export function saveSettings(settings: Partial<AppSettings>) {
       distro: updated.distro,
       save_path: updated.savePath,
       windows_save_path: updated.windowsSavePath,
+      clipboard_mode: updated.clipboardMode,
     },
   }).catch(() => {});
   return updated;

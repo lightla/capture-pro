@@ -42,6 +42,7 @@ export function MainApp() {
         distro: s.distro,
         save_path: s.savePath,
         windows_save_path: s.windowsSavePath,
+        clipboard_mode: s.clipboardMode,
       },
     }).catch(() => {});
   }, []);
