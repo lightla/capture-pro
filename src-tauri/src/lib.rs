@@ -187,28 +187,41 @@ pub fn run() {
                             let mut text_path = last.as_ref().map(|x| x.text_path.clone()).unwrap_or_default();
                             let mut file_path = last.as_ref().and_then(|x| x.file_path.clone()).unwrap_or_default();
 
+                            // If user currently has a non-path text in clipboard, do nothing.
+                            // Ctrl+Shift+V should only "activate" when clipboard is an image (copy/paste image flow)
+                            // or when clipboard text looks like a real file path.
+                            let mut clipboard_text_now: Option<String> = None;
+                            match win_clipboard::get_clipboard_text() {
+                                Ok(Some(s)) => {
+                                    let picked = s
+                                        .lines()
+                                        .map(|l| l.trim())
+                                        .find(|l| !l.is_empty())
+                                        .unwrap_or("")
+                                        .trim_matches('"')
+                                        .to_string();
+                                    if !picked.is_empty() {
+                                        clipboard_text_now = Some(picked);
+                                    }
+                                }
+                                Ok(None) => {}
+                                Err(e) => {
+                                    eprintln!("[CaptureProKey] Ctrl+Shift+V: get_clipboard_text failed: {}", e);
+                                }
+                            }
+
                             // If we don't have cached last capture, fall back to current clipboard text.
                             if file_path.is_empty() || text_path.is_empty() {
-                                match win_clipboard::get_clipboard_text() {
-                                    Ok(Some(s)) => {
-                                        // Take the first non-empty line.
-                                        let picked = s
-                                            .lines()
-                                            .map(|l| l.trim())
-                                            .find(|l| !l.is_empty())
-                                            .unwrap_or("")
-                                            .to_string();
-                                        if !picked.is_empty() {
-                                            text_path = picked.clone();
-                                            file_path = picked;
-                                            eprintln!("[CaptureProKey] Ctrl+Shift+V: using clipboard text path");
-                                        }
-                                    }
-                                    Ok(None) => {
-                                        eprintln!("[CaptureProKey] Ctrl+Shift+V: clipboard has no text");
-                                    }
-                                    Err(e) => {
-                                        eprintln!("[CaptureProKey] Ctrl+Shift+V: get_clipboard_text failed: {}", e);
+                                if let Some(candidate) = clipboard_text_now.clone() {
+                                    let is_pathish = candidate.starts_with(r"\\")
+                                        || candidate.contains(r":\")
+                                        || candidate.contains(r":/")
+                                        || candidate.starts_with('/');
+                                    let exists = is_pathish && std::path::Path::new(&candidate).is_file();
+                                    if exists {
+                                        text_path = candidate.clone();
+                                        file_path = candidate;
+                                        eprintln!("[CaptureProKey] Ctrl+Shift+V: using clipboard text path");
                                     }
                                 }
                             }
@@ -251,6 +264,37 @@ pub fn run() {
                                     }
                                 }
 
+                                // If clipboard currently contains text, only proceed when that text is exactly
+                                // the capture path (or a valid existing file path). Otherwise Ctrl+Shift+V should
+                                // do nothing so we don't hijack normal text copy/paste.
+                                if !ok {
+                                    match win_clipboard::get_clipboard_text() {
+                                        Ok(Some(s)) => {
+                                            let picked = s
+                                                .lines()
+                                                .map(|l| l.trim())
+                                                .find(|l| !l.is_empty())
+                                                .unwrap_or("")
+                                                .trim_matches('"')
+                                                .to_string();
+                                            if !picked.is_empty() {
+                                                let is_pathish = picked.starts_with(r"\\")
+                                                    || picked.contains(r":\")
+                                                    || picked.contains(r":/")
+                                                    || picked.starts_with('/');
+                                                let exists = is_pathish && std::path::Path::new(&picked).is_file();
+                                                let matches_last = !text_path.is_empty() && picked == text_path;
+                                                if !(matches_last || exists) {
+                                                    eprintln!("[CaptureProKey] Ctrl+Shift+V: clipboard text not a path, ignoring");
+                                                    return;
+                                                }
+                                            }
+                                        }
+                                        Ok(None) => {}
+                                        Err(_) => {}
+                                    }
+                                }
+
                                 // Prefer pasting the actual image (bitmap) into apps.
                                 if !ok {
                                     for _ in 0..16 {
@@ -289,7 +333,16 @@ pub fn run() {
                                     if should_restore_text && !text_path.is_empty() {
                                         std::thread::spawn(move || {
                                             std::thread::sleep(std::time::Duration::from_millis(1800));
-                                            let _ = win_clipboard::set_clipboard_text(&text_path);
+                                            // Don't overwrite user's clipboard if they copied something meanwhile.
+                                            // Only restore when clipboard doesn't currently have any text.
+                                            match win_clipboard::get_clipboard_text() {
+                                                Ok(Some(s)) if !s.trim().is_empty() => {
+                                                    eprintln!("[CaptureProKey] Ctrl+Shift+V: skip restore (clipboard text changed)");
+                                                }
+                                                _ => {
+                                                    let _ = win_clipboard::set_clipboard_text(&text_path);
+                                                }
+                                            }
                                         });
                                     }
                                 } else {
