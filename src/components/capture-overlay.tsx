@@ -11,9 +11,9 @@ type DragMode = "none" | "select" | "move" | "resize-nw" | "resize-ne" | "resize
 const HANDLE_SIZE = 10;
 const HANDLE_HIT = 14;
 
-// Brighter selection blue (better contrast on dark mask).
-const V1_BLUE = "rgba(186,230,253,0.98)"; // close to #bae6fd
-const V1_BLUE_SOLID = "rgba(186,230,253,1)";
+// Bright selection blue (better contrast on dark mask) — slightly toned down.
+const V1_BLUE = "rgba(96,165,250,0.98)"; // close to #60a5fa
+const V1_BLUE_SOLID = "rgba(96,165,250,1)";
 
 declare global {
   interface Window {
