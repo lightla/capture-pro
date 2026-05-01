@@ -240,7 +240,8 @@ export function WslBrowserModal({ onClose }: { onClose: () => void }) {
                   onClick={() => { setSaveTarget(t); setError(""); }}
                   style={{
                     flex: 1,
-                    padding: "10px 0",
+                    height: 44,
+                    padding: 0,
                     borderRadius: 10,
                     cursor: "pointer",
                     fontSize: 12,
@@ -255,13 +256,17 @@ export function WslBrowserModal({ onClose }: { onClose: () => void }) {
                   }}
                 >
                   {t === "windows" ? (
-                    <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
-                      <WindowsMark size={14} /> Windows
-                    </span>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, width: "100%", height: "100%" }}>
+                      <span style={{ width: 18, display: "inline-flex", alignItems: "center", justifyContent: "center" }}>
+                        <WindowsMark size={14} />
+                      </span>
+                      <span style={{ lineHeight: 1 }}>Windows</span>
+                    </div>
                   ) : (
-                    <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
-                      <span style={{ fontSize: 18, lineHeight: 1 }}>🐧</span> WSL
-                    </span>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, width: "100%", height: "100%" }}>
+                      <span style={{ width: 18, display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 18, lineHeight: 1 }}>🐧</span>
+                      <span style={{ lineHeight: 1 }}>WSL</span>
+                    </div>
                   )}
                 </button>
               ))}
@@ -405,7 +410,7 @@ export function WslBrowserModal({ onClose }: { onClose: () => void }) {
                 }}
                 title="Pick a Windows folder and convert to WSL path"
               >
-                System picker
+                System Picker
               </button>
             </div>
 
@@ -484,7 +489,7 @@ export function WslBrowserModal({ onClose }: { onClose: () => void }) {
                   boxShadow: "0 1px 3px rgba(0,0,0,0.06)",
                 }}
               >
-                System picker
+                System Picker
               </button>
             </div>
 

@@ -12,7 +12,7 @@ const HANDLE_SIZE = 10;
 const HANDLE_HIT = 14;
 
 // Bright selection blue (better contrast on dark mask) — slightly toned down.
-const V1_BLUE = "rgba(96,165,250,0.98)"; // close to #60a5fa
+const V1_BLUE = "rgba(96,165,250,0.98)"; // #60a5fa (slightly brighter)
 const V1_BLUE_SOLID = "rgba(96,165,250,1)";
 
 declare global {
@@ -445,7 +445,21 @@ export function CaptureOverlay() {
 
       {/* Selection border + handles */}
       {sel && sel.width > 0 && sel.height > 0 && (
-        <div style={{ position: "absolute", left: sel.x, top: sel.y, width: sel.width, height: sel.height, border: `2px solid ${V1_BLUE}`, boxShadow: "0 0 0 1px rgba(15,23,42,0.45)", pointerEvents: "none" }}>
+        <div
+          style={{
+            position: "absolute",
+            left: sel.x,
+            top: sel.y,
+            width: sel.width,
+            height: sel.height,
+            border: "1px solid transparent",
+            backgroundColor: "rgba(59,130,246,0.34)", // fill tint
+            border: `1px solid ${V1_BLUE_SOLID}`,
+            mixBlendMode: "normal",
+            boxShadow: "none",
+            pointerEvents: "none",
+          }}
+        >
           {/* Size badge */}
           <div style={{ position: "absolute", top: -28, left: 0, background: "rgba(24,28,39,0.92)", color: "#bae6fd", fontSize: 11, padding: "3px 8px", borderRadius: 5, fontFamily: "monospace", whiteSpace: "nowrap" }}>
             {Math.round(sel.width)} × {Math.round(sel.height)}
