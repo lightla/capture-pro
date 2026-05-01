@@ -452,7 +452,6 @@ export function CaptureOverlay() {
             top: sel.y,
             width: sel.width,
             height: sel.height,
-            border: "1px solid transparent",
             backgroundColor: "rgba(59,130,246,0.34)", // fill tint
             border: `1px solid ${V1_BLUE_SOLID}`,
             mixBlendMode: "normal",

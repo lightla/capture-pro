@@ -55,6 +55,9 @@ export function WslBrowserModal({ onClose }: { onClose: () => void }) {
   const [showDistroMenu, setShowDistroMenu] = useState(false);
   const distroMenuRef = useRef<HTMLDivElement | null>(null);
 
+  const BTN_BORDER = "#cbd5e1";
+  const BTN_BG = "#f8fafc";
+
   const pickWindowsFolder = async (defaultPath: string | null) => {
     setSystemPickBusy(true);
     try {
@@ -215,7 +218,7 @@ export function WslBrowserModal({ onClose }: { onClose: () => void }) {
 
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 10000 }}>
-      <div style={{ background: "white", borderRadius: 16, width: 560, maxHeight: "90vh", display: "flex", flexDirection: "column", boxShadow: "0 20px 60px rgba(0,0,0,0.25)", overflow: "hidden" }}>
+        <div style={{ background: "white", borderRadius: 16, width: 560, maxHeight: "90vh", display: "flex", flexDirection: "column", boxShadow: "0 20px 60px rgba(0,0,0,0.25)", overflow: "hidden" }}>
 
         {/* Header */}
         <div style={{ padding: "16px 20px", borderBottom: "1px solid #f1f5f9", display: "flex", alignItems: "center", justifyContent: "space-between", background: "linear-gradient(135deg, #f8faff, #f1f5fb)" }}>
@@ -223,7 +226,7 @@ export function WslBrowserModal({ onClose }: { onClose: () => void }) {
             <div style={{ fontWeight: 700, fontSize: 15, color: "#0f172a" }}>Settings</div>
             <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 1 }}>Configure save location & clipboard</div>
           </div>
-          <button onClick={onClose} style={{ width: 30, height: 30, borderRadius: 8, border: "1px solid #e2e8f0", background: "white", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: "#64748b" }}>
+          <button onClick={onClose} style={{ width: 32, height: 32, borderRadius: 8, border: `1px solid ${BTN_BORDER}`, background: BTN_BG, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: "#64748b" }}>
             <X size={14} />
           </button>
         </div>
@@ -250,8 +253,8 @@ export function WslBrowserModal({ onClose }: { onClose: () => void }) {
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "center",
-                    border: saveTarget === t ? "1px solid #93c5fd" : "1px solid #e2e8f0",
-                    background: saveTarget === t ? "#eff6ff" : "white",
+                    border: saveTarget === t ? "1px solid #93c5fd" : `1px solid ${BTN_BORDER}`,
+                    background: saveTarget === t ? "#eff6ff" : BTN_BG,
                     color: saveTarget === t ? "#2563eb" : "#64748b",
                   }}
                 >
@@ -285,8 +288,8 @@ export function WslBrowserModal({ onClose }: { onClose: () => void }) {
                     width: "100%",
                     height: 40,
                     borderRadius: 10,
-                    border: showDistroMenu ? "1px solid #93c5fd" : "1px solid #cbd5e1",
-                    background: "white",
+                    border: showDistroMenu ? "1px solid #93c5fd" : `1px solid ${BTN_BORDER}`,
+                    background: BTN_BG,
                     cursor: "pointer",
                     fontSize: 13,
                     padding: "0 12px",
@@ -387,31 +390,30 @@ export function WslBrowserModal({ onClose }: { onClose: () => void }) {
               <span style={{ fontSize: 10, color: "#94a3b8", fontFamily: "monospace" }}>{distro}:{path}</span>
             </div>
 
-            <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+            <div style={{ fontSize: 12, color: "#64748b", marginBottom: 8 }}>
+              Choose a folder below, or use{" "}
               <button
                 onClick={systemPickWsl}
                 disabled={!distro || systemPickBusy}
                 style={{
-                  flex: 1,
-                  padding: "9px 12px",
-                  borderRadius: 10,
-                  border: "1px solid #cbd5e1",
-                  background: "white",
+                  border: "none",
+                  background: "transparent",
+                  padding: 0,
+                  margin: 0,
                   cursor: !distro || systemPickBusy ? "not-allowed" : "pointer",
-                  fontSize: 12,
-                  fontWeight: 600,
                   color: "#2563eb",
-                  opacity: !distro || systemPickBusy ? 0.6 : 1,
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  gap: 8,
-                  boxShadow: "0 1px 3px rgba(0,0,0,0.06)",
+                  fontWeight: 600,
+                  fontFamily: "inherit",
+                  fontSize: "inherit",
+                  lineHeight: "inherit",
+                  textDecoration: "none",
+                  opacity: !distro || systemPickBusy ? 0.5 : 1,
                 }}
-                title="Pick a Windows folder and convert to WSL path"
+                title="Open System Picker (Windows folder picker)"
               >
                 System Picker
               </button>
+              .
             </div>
 
             {/* Breadcrumb */}
@@ -467,30 +469,30 @@ export function WslBrowserModal({ onClose }: { onClose: () => void }) {
               <span style={{ fontSize: 10, color: "#94a3b8", fontFamily: "monospace" }}>{winNormalize(winPath) || "—"}</span>
             </div>
 
-            <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+            <div style={{ fontSize: 12, color: "#64748b", marginBottom: 8 }}>
+              Choose a folder below, or use{" "}
               <button
                 onClick={systemPickWindows}
                 disabled={systemPickBusy}
                 style={{
-                  flex: 1,
-                  padding: "9px 12px",
-                  borderRadius: 10,
-                  border: "1px solid #cbd5e1",
-                  background: "white",
+                  border: "none",
+                  background: "transparent",
+                  padding: 0,
+                  margin: 0,
                   cursor: systemPickBusy ? "not-allowed" : "pointer",
-                  fontSize: 12,
-                  fontWeight: 600,
                   color: "#2563eb",
-                  opacity: systemPickBusy ? 0.6 : 1,
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  gap: 8,
-                  boxShadow: "0 1px 3px rgba(0,0,0,0.06)",
+                  fontWeight: 600,
+                  fontFamily: "inherit",
+                  fontSize: "inherit",
+                  lineHeight: "inherit",
+                  textDecoration: "none",
+                  opacity: systemPickBusy ? 0.5 : 1,
                 }}
+                title="Open System Picker"
               >
                 System Picker
               </button>
+              .
             </div>
 
             {(() => {
@@ -586,7 +588,7 @@ export function WslBrowserModal({ onClose }: { onClose: () => void }) {
             )}
           </div>
           <div style={{ display: "flex", gap: 8 }}>
-            <button onClick={onClose} style={{ padding: "9px 18px", borderRadius: 10, border: "1px solid #e2e8f0", background: "white", cursor: "pointer", fontSize: 13, color: "#64748b" }}>Cancel</button>
+            <button onClick={onClose} style={{ padding: "9px 18px", borderRadius: 10, border: `1px solid ${BTN_BORDER}`, background: BTN_BG, cursor: "pointer", fontSize: 13, color: "#64748b" }}>Cancel</button>
             <button onClick={handleSave} style={{ padding: "9px 22px", borderRadius: 10, border: "none", background: "linear-gradient(135deg, #3b82f6, #2563eb)", color: "#bfdbfe", cursor: "pointer", fontSize: 13, fontWeight: 500, display: "flex", alignItems: "center", gap: 6, transition: "all 0.2s" }}>
               Save
             </button>
@@ -600,7 +602,7 @@ export function WslBrowserModal({ onClose }: { onClose: () => void }) {
 
 const L: any = {
   label: { display: "block", fontSize: 10, fontWeight: 700, letterSpacing: "0.08em", color: "#94a3b8", textTransform: "uppercase", marginBottom: 8 } as React.CSSProperties,
-  iconBtn: { width: 38, height: 38, borderRadius: 9, border: "1px solid #e2e8f0", background: "white", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: "#64748b" } as React.CSSProperties,
+  iconBtn: { width: 38, height: 38, borderRadius: 9, border: "1px solid #cbd5e1", background: "#f8fafc", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: "#64748b" } as React.CSSProperties,
   crumb: (active: boolean) => ({ cursor: active ? "default" : "pointer", color: active ? "#1e293b" : "#3b82f6", fontWeight: active ? 700 : 500, padding: "1px 4px", borderRadius: 4, background: active ? "#f1f5f9" : "transparent" }) as React.CSSProperties,
   dirBtn: { display: "flex", alignItems: "center", gap: 8, padding: "9px 12px", background: "white", border: "1px solid #e8edf3", borderRadius: 10, fontSize: 12, color: "#334155", cursor: "pointer", transition: "all 0.12s", width: "100%", boxShadow: "0 1px 2px rgba(0,0,0,0.04)" } as React.CSSProperties,
 };
