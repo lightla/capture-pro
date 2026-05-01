@@ -29,6 +29,7 @@ function WindowsMark({ size = 14 }: { size?: number }) {
       focusable="false"
       style={{ display: "block" }}
     >
+      <rect x="0.5" y="0.5" width="15" height="15" rx="3" fill="#dbeafe" />
       <rect x="1" y="1" width="6" height="6" rx="1.2" fill="#60a5fa" />
       <rect x="9" y="1" width="6" height="6" rx="1.2" fill="#3b82f6" />
       <rect x="1" y="9" width="6" height="6" rx="1.2" fill="#3b82f6" />

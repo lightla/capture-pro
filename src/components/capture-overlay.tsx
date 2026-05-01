@@ -11,8 +11,9 @@ type DragMode = "none" | "select" | "move" | "resize-nw" | "resize-ne" | "resize
 const HANDLE_SIZE = 10;
 const HANDLE_HIT = 14;
 
-const V1_BLUE = "rgba(69,163,255,0.98)"; // NRGBA{69,163,255,255}
-const V1_BLUE_SOLID = "rgba(69,163,255,1)";
+// Brighter selection blue (better contrast on dark mask).
+const V1_BLUE = "rgba(186,230,253,0.98)"; // close to #bae6fd
+const V1_BLUE_SOLID = "rgba(186,230,253,1)";
 
 declare global {
   interface Window {
@@ -444,24 +445,12 @@ export function CaptureOverlay() {
 
       {/* Selection border + handles */}
       {sel && sel.width > 0 && sel.height > 0 && (
-        <div style={{ position: "absolute", left: sel.x, top: sel.y, width: sel.width, height: sel.height, border: `2px solid ${V1_BLUE}`, boxShadow: "0 0 0 1px rgba(0,0,0,0.3)", pointerEvents: "none" }}>
+        <div style={{ position: "absolute", left: sel.x, top: sel.y, width: sel.width, height: sel.height, border: `2px solid ${V1_BLUE}`, boxShadow: "0 0 0 1px rgba(15,23,42,0.45)", pointerEvents: "none" }}>
           {/* Size badge */}
-          <div style={{ position: "absolute", top: -28, left: 0, background: "rgba(24,28,39,0.92)", color: "white", fontSize: 11, padding: "3px 8px", borderRadius: 5, fontFamily: "monospace", whiteSpace: "nowrap" }}>
+          <div style={{ position: "absolute", top: -28, left: 0, background: "rgba(24,28,39,0.92)", color: "#bae6fd", fontSize: 11, padding: "3px 8px", borderRadius: 5, fontFamily: "monospace", whiteSpace: "nowrap" }}>
             {Math.round(sel.width)} × {Math.round(sel.height)}
           </div>
-          {/* 8 handles */}
-          {[
-            { top: -HANDLE_SIZE/2, left: -HANDLE_SIZE/2 },
-            { top: -HANDLE_SIZE/2, left: sel.width/2 - HANDLE_SIZE/2 },
-            { top: -HANDLE_SIZE/2, right: -HANDLE_SIZE/2 },
-            { top: sel.height/2 - HANDLE_SIZE/2, left: -HANDLE_SIZE/2 },
-            { top: sel.height/2 - HANDLE_SIZE/2, right: -HANDLE_SIZE/2 },
-            { bottom: -HANDLE_SIZE/2, left: -HANDLE_SIZE/2 },
-            { bottom: -HANDLE_SIZE/2, left: sel.width/2 - HANDLE_SIZE/2 },
-            { bottom: -HANDLE_SIZE/2, right: -HANDLE_SIZE/2 },
-          ].map((style, i) => (
-            <div key={i} style={{ position: "absolute", width: HANDLE_SIZE, height: HANDLE_SIZE, background: V1_BLUE_SOLID, boxShadow: "0 0 0 1px rgba(255,255,255,0.9)", borderRadius: 2, ...style }} />
-          ))}
+          {/* Handles intentionally hidden. */}
         </div>
       )}
 

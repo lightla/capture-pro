@@ -570,7 +570,9 @@ export function MainApp() {
           <div style={S.previewBox} onClick={e => e.stopPropagation()}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
               <span style={{ fontWeight: 600, fontSize: 13 }}>{preview.name}</span>
-              <button onClick={() => setPreview(null)} style={S.closeBtn}><X size={16} /></button>
+              <button onClick={() => setPreview(null)} style={S.closeBtn} title="Close">
+                <X size={16} />
+              </button>
             </div>
             {preview.thumbnail
               ? <img src={preview.thumbnail} alt={preview.name} style={{ maxWidth: "100%", maxHeight: "60vh", objectFit: "contain", borderRadius: 8, border: "1px solid #f1f5f9" }} />
@@ -1038,7 +1040,7 @@ const S: Record<string, React.CSSProperties> = {
   statusBar: { display: "flex", alignItems: "center", padding: "5px 14px", background: "white", borderTop: "1px solid #e8edf3", minHeight: 28 },
   modalBg: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 9999 },
   previewBox: { background: "white", borderRadius: 16, padding: 20, maxWidth: "80vw", maxHeight: "90vh", display: "flex", flexDirection: "column", boxShadow: "0 20px 60px rgba(0,0,0,0.3)", overflow: "auto" },
-  closeBtn: { width: 28, height: 28, borderRadius: 6, border: "1px solid #e2e8f0", background: "white", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: "#64748b" },
+  closeBtn: { width: 32, height: 32, borderRadius: 8, border: "1px solid #cbd5e1", background: "#f8fafc", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: "#64748b", flexShrink: 0, transition: "all 0.12s ease", outline: "none", boxShadow: "none" },
   menuItem: { width: "100%", display: "flex", alignItems: "center", gap: 8, border: "none", background: "white", color: "#334155", borderRadius: 6, padding: "7px 8px", cursor: "pointer", fontSize: 12, fontWeight: 600, whiteSpace: "nowrap" },
   menuItemActive: { background: "#eff6ff", color: "#2563eb" },
 };
