@@ -227,7 +227,7 @@ export function MainApp() {
   };
 
   const handleHide = async () => {
-    await invoke("hide_main_window").catch(console.error);
+    await invoke("hide_main_window_user").catch(console.error);
   };
 
   const handleDockRight = async (columns: 1 | 2 = dockColumns) => {

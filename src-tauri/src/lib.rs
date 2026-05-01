@@ -92,6 +92,9 @@ struct DockSnapshot {
 #[derive(Default)]
 struct DockState(Mutex<Option<DockSnapshot>>);
 
+#[derive(Default)]
+struct UiVisibilityState(Mutex<bool>); // true when user explicitly hid the app
+
 #[derive(Clone, Debug, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 struct DockResult {
@@ -158,11 +161,16 @@ async fn show_overlay_impl(app: tauri::AppHandle) {
     }
 
     if let Some(main) = app.get_webview_window("main") {
+        // Only temporarily hide if it's currently visible. If user already hid the app,
+        // we should not change that state.
+        let is_visible = main.is_visible().unwrap_or(true);
         #[cfg(target_os = "windows")]
         set_exclude_from_capture(&main, true);
-        let _ = main.hide();
-        #[cfg(target_os = "windows")]
-        wait_hidden(&main);
+        if is_visible {
+            let _ = main.hide();
+            #[cfg(target_os = "windows")]
+            wait_hidden(&main);
+        }
     }
     #[cfg(target_os = "windows")]
     flush_compositor();
@@ -217,11 +225,17 @@ fn close_overlay(app: tauri::AppHandle) {
         let _ = overlay.hide();
     }
     // Show main window again
-    if let Some(main) = app.get_webview_window("main") {
-        #[cfg(target_os = "windows")]
-        set_exclude_from_capture(&main, false);
-        let _ = main.show();
-        let _ = main.set_focus();
+    let user_hidden = app
+        .try_state::<UiVisibilityState>()
+        .and_then(|s| s.0.lock().ok().map(|g| *g))
+        .unwrap_or(false);
+    if !user_hidden {
+        if let Some(main) = app.get_webview_window("main") {
+            #[cfg(target_os = "windows")]
+            set_exclude_from_capture(&main, false);
+            let _ = main.show();
+            let _ = main.set_focus();
+        }
     }
 }
 
@@ -241,6 +255,27 @@ fn set_always_on_top(app: tauri::AppHandle, value: bool) {
 fn hide_main_window(app: tauri::AppHandle) {
     if let Some(w) = app.get_webview_window("main") {
         let _ = w.hide();
+    }
+}
+
+#[tauri::command]
+fn hide_main_window_user(app: tauri::AppHandle, state: tauri::State<'_, UiVisibilityState>) {
+    if let Ok(mut hidden) = state.0.lock() {
+        *hidden = true;
+    }
+    if let Some(w) = app.get_webview_window("main") {
+        let _ = w.hide();
+    }
+}
+
+#[tauri::command]
+fn show_main_window_user(app: tauri::AppHandle, state: tauri::State<'_, UiVisibilityState>) {
+    if let Ok(mut hidden) = state.0.lock() {
+        *hidden = false;
+    }
+    if let Some(w) = app.get_webview_window("main") {
+        let _ = w.show();
+        let _ = w.set_focus();
     }
 }
 
@@ -544,16 +579,15 @@ pub fn run() {
             app.manage(SettingsState::default());
             app.manage(OverlayTargetState::default());
             app.manage(DockState::default());
+            app.manage(UiVisibilityState::default());
 
-            // Minimize-to-tray behavior: keep service running even when user closes the window.
+            // Close behavior: clicking X should exit the process (graceful shutdown).
             if let Some(main) = app.get_webview_window("main") {
-                let main_window = main.clone();
                 main.on_window_event(move |event| {
                     if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                        if !ALLOW_EXIT.load(Ordering::SeqCst) {
-                            api.prevent_close();
-                            let _ = main_window.hide();
-                        }
+                        // Allow the close request to proceed.
+                        ALLOW_EXIT.store(true, Ordering::SeqCst);
+                        let _ = api;
                     }
                 });
             }
@@ -576,6 +610,11 @@ pub fn run() {
                     .on_menu_event(|app, event| {
                         match event.id().as_ref() {
                             "tray_show" => {
+                                if let Some(state) = app.try_state::<UiVisibilityState>() {
+                                    if let Ok(mut hidden) = state.0.lock() {
+                                        *hidden = false;
+                                    }
+                                }
                                 if let Some(main) = app.get_webview_window("main") {
                                     let _ = main.show();
                                     let _ = main.set_focus();
@@ -654,6 +693,8 @@ pub fn run() {
             show_overlay,
             set_always_on_top,
             hide_main_window,
+            hide_main_window_user,
+            show_main_window_user,
             toggle_dock_main_right,
         ])
         .run(tauri::generate_context!())
