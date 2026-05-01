@@ -2,7 +2,8 @@
 use windows::Win32::Foundation::{HGLOBAL, HWND, HANDLE};
 #[cfg(target_os = "windows")]
 use windows::Win32::System::DataExchange::{
-    CloseClipboard, EmptyClipboard, GetClipboardData, OpenClipboard, SetClipboardData,
+    CloseClipboard, EmptyClipboard, GetClipboardData, IsClipboardFormatAvailable, OpenClipboard,
+    RegisterClipboardFormatW, SetClipboardData,
 };
 #[cfg(target_os = "windows")]
 use windows::Win32::System::Memory::{
@@ -26,6 +27,23 @@ fn set_clipboard_data(format: u32, handle: HANDLE) -> Result<(), String> {
         let result = (|| {
             EmptyClipboard().map_err(|e| format!("EmptyClipboard failed: {}", e))?;
             SetClipboardData(format, handle).map_err(|e| format!("SetClipboardData failed: {}", e))?;
+            Ok(())
+        })();
+        let _ = CloseClipboard();
+        result
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn set_clipboard_data_multi(formats: &[(u32, HANDLE)]) -> Result<(), String> {
+    unsafe {
+        OpenClipboard(HWND(0)).map_err(|e| format!("OpenClipboard failed: {}", e))?;
+        let result = (|| {
+            EmptyClipboard().map_err(|e| format!("EmptyClipboard failed: {}", e))?;
+            for (format, handle) in formats {
+                SetClipboardData(*format, *handle)
+                    .map_err(|e| format!("SetClipboardData failed (format={}): {}", format, e))?;
+            }
             Ok(())
         })();
         let _ = CloseClipboard();
@@ -136,6 +154,23 @@ pub fn get_clipboard_text() -> Result<Option<String>, String> {
 }
 
 #[cfg(target_os = "windows")]
+pub fn clipboard_has_image() -> Result<bool, String> {
+    unsafe {
+        OpenClipboard(HWND(0)).map_err(|e| format!("OpenClipboard failed: {}", e))?;
+        let result = (|| {
+            // Users/apps may put images in different standard formats.
+            // CF_BITMAP = 2, CF_DIB = 8 (Win32 clipboard formats).
+            let dibv5 = IsClipboardFormatAvailable(CF_DIBV5.0 as u32).is_ok();
+            let dib = IsClipboardFormatAvailable(8).is_ok();
+            let bitmap = IsClipboardFormatAvailable(2).is_ok();
+            Ok(dibv5 || dib || bitmap)
+        })();
+        let _ = CloseClipboard();
+        result
+    }
+}
+
+#[cfg(target_os = "windows")]
 pub fn paste_ctrl_v() -> Result<(), String> {
     unsafe {
         let inputs = [
@@ -206,9 +241,22 @@ pub fn set_clipboard_image_from_bytes(bytes: &[u8]) -> Result<(), String> {
     let image_bytes = bgra.len();
     let total_size = header_size + image_bytes;
 
+    // Build PNG payload too (some apps only accept PNG clipboard format).
+    let mut png_bytes: Vec<u8> = Vec::new();
+    {
+        use std::io::Write;
+        let mut cursor = std::io::Cursor::new(&mut png_bytes);
+        image::DynamicImage::ImageRgba8(image::RgbaImage::from_raw(width, height, rgba).ok_or("Failed to rebuild image buffer")?)
+            .write_to(&mut cursor, image::ImageFormat::Png)
+            .map_err(|e| format!("Failed to encode PNG: {}", e))?;
+        cursor.flush().ok();
+    }
+
     unsafe {
-        let hmem = GlobalAlloc(GMEM_MOVEABLE, total_size).map_err(|e| format!("GlobalAlloc failed: {}", e))?;
-        let ptr = GlobalLock(hmem) as *mut u8;
+        // CF_DIBV5 payload (DIB).
+        let hmem_dibv5 = GlobalAlloc(GMEM_MOVEABLE, total_size)
+            .map_err(|e| format!("GlobalAlloc failed: {}", e))?;
+        let ptr = GlobalLock(hmem_dibv5) as *mut u8;
         if ptr.is_null() {
             return Err("GlobalLock failed".to_string());
         }
@@ -234,9 +282,24 @@ pub fn set_clipboard_image_from_bytes(bytes: &[u8]) -> Result<(), String> {
         );
         std::ptr::copy_nonoverlapping(bgra.as_ptr(), ptr.add(header_size), image_bytes);
 
-        let _ = GlobalUnlock(hmem);
+        let _ = GlobalUnlock(hmem_dibv5);
 
-        // Ownership of hmem is transferred to the system on success.
-        set_clipboard_data(CF_DIBV5.0 as u32, HANDLE(hmem.0 as isize))
+        // "PNG" registered clipboard format payload.
+        let png_format = RegisterClipboardFormatW(windows::core::w!("PNG"));
+        let hmem_png = GlobalAlloc(GMEM_MOVEABLE, png_bytes.len())
+            .map_err(|e| format!("GlobalAlloc failed: {}", e))?;
+        let p_png = GlobalLock(hmem_png) as *mut u8;
+        if p_png.is_null() {
+            return Err("GlobalLock failed".to_string());
+        }
+        std::ptr::copy_nonoverlapping(png_bytes.as_ptr(), p_png, png_bytes.len());
+        let _ = GlobalUnlock(hmem_png);
+
+        // Set both formats in one clipboard transaction.
+        // Ownership of both handles is transferred to the system on success.
+        set_clipboard_data_multi(&[
+            (CF_DIBV5.0 as u32, HANDLE(hmem_dibv5.0 as isize)),
+            (png_format, HANDLE(hmem_png.0 as isize)),
+        ])
     }
 }

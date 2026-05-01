@@ -215,20 +215,53 @@ pub fn run() {
 
                             if file_path.is_empty() {
                                 eprintln!("[CaptureProKey] Ctrl+Shift+V: no file path available");
+                                // Still allow "paste image from clipboard" behavior when user already copied an image.
+                                let _ = tauri::async_runtime::spawn_blocking(move || {
+                                    match win_clipboard::clipboard_has_image() {
+                                        Ok(true) => {
+                                            eprintln!("[CaptureProKey] Ctrl+Shift+V: clipboard already has image, pasting");
+                                            let _ = win_clipboard::paste_ctrl_v();
+                                        }
+                                        Ok(false) => {
+                                            eprintln!("[CaptureProKey] Ctrl+Shift+V: clipboard has no image");
+                                        }
+                                        Err(e) => {
+                                            eprintln!("[CaptureProKey] Ctrl+Shift+V: clipboard_has_image failed: {}", e);
+                                        }
+                                    }
+                                }).await;
                                 return;
                             }
 
                             let _ = tauri::async_runtime::spawn_blocking(move || {
                                 let mut ok = false;
+                                let mut should_restore_text = false;
+
+                                // If the user already copied an image (from Snipping Tool/Photos/etc),
+                                // Ctrl+Shift+V should just paste it without touching the clipboard.
+                                match win_clipboard::clipboard_has_image() {
+                                    Ok(true) => {
+                                        eprintln!("[CaptureProKey] Ctrl+Shift+V: clipboard already has image, pasting");
+                                        ok = true;
+                                        should_restore_text = false;
+                                    }
+                                    Ok(false) => {}
+                                    Err(e) => {
+                                        eprintln!("[CaptureProKey] Ctrl+Shift+V: clipboard_has_image failed: {}", e);
+                                    }
+                                }
 
                                 // Prefer pasting the actual image (bitmap) into apps.
-                                for _ in 0..16 {
-                                    if win_clipboard::set_clipboard_image_from_file(&file_path).is_ok() {
-                                        eprintln!("[CaptureProKey] Ctrl+Shift+V: clipboard image OK");
-                                        ok = true;
-                                        break;
+                                if !ok {
+                                    for _ in 0..16 {
+                                        if win_clipboard::set_clipboard_image_from_file(&file_path).is_ok() {
+                                            eprintln!("[CaptureProKey] Ctrl+Shift+V: clipboard image OK");
+                                            ok = true;
+                                            should_restore_text = true;
+                                            break;
+                                        }
+                                        std::thread::sleep(std::time::Duration::from_millis(50));
                                     }
-                                    std::thread::sleep(std::time::Duration::from_millis(50));
                                 }
 
                                 // Fallback: paste the file itself (CF_HDROP) if image format isn't accepted.
@@ -237,6 +270,7 @@ pub fn run() {
                                         if win_clipboard::set_clipboard_files(&[file_path.clone()]).is_ok() {
                                             eprintln!("[CaptureProKey] Ctrl+Shift+V: clipboard files OK");
                                             ok = true;
+                                            should_restore_text = true;
                                             break;
                                         }
                                         std::thread::sleep(std::time::Duration::from_millis(50));
@@ -250,14 +284,14 @@ pub fn run() {
                                         eprintln!("[CaptureProKey] Ctrl+Shift+V: paste_ctrl_v sent");
                                     }
 
-                                    // Restore the path text so normal Ctrl+V still pastes the path afterwards.
-                                    // Delay so the target app has time to read the clipboard payload.
-                                    std::thread::spawn(move || {
-                                        std::thread::sleep(std::time::Duration::from_millis(1800));
-                                        if !text_path.is_empty() {
+                                    // Restore the path text so normal Ctrl+V still pastes the path afterwards,
+                                    // but only if we actually overwrote the clipboard with file/image content.
+                                    if should_restore_text && !text_path.is_empty() {
+                                        std::thread::spawn(move || {
+                                            std::thread::sleep(std::time::Duration::from_millis(1800));
                                             let _ = win_clipboard::set_clipboard_text(&text_path);
-                                        }
-                                    });
+                                        });
+                                    }
                                 } else {
                                     eprintln!("[CaptureProKey] Ctrl+Shift+V: failed to set clipboard payload");
                                 }
