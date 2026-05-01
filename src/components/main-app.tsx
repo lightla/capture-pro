@@ -1,12 +1,12 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
-import { loadSettings } from "@/lib/store";
+import { loadSettings, saveSettings, type AppSettings } from "@/lib/store";
 import { WslBrowserModal } from "./wsl-browser-modal";
 import {
   Settings, Camera, Pin, PinOff, EyeOff, Trash2,
   Copy, ImageIcon, RefreshCw, CheckSquare, Square,
-  List, LayoutGrid, X, ChevronRight
+  List, LayoutGrid, X, ChevronRight, Target
 } from "lucide-react";
 
 // ── types ────────────────────────────────────────────────────────────────────
@@ -29,7 +29,9 @@ export function MainApp() {
   const [loading, setLoading] = useState(false);
   const [preview, setPreview] = useState<CaptureFile | null>(null);
   const [status, setStatus] = useState("Ready.");
+  const [reloadNonce, setReloadNonce] = useState(0);
   const settings = loadSettings();
+  const galleryMode = settings.galleryMode || "all";
   const missingSaveLocation = settings.saveTarget === "windows"
     ? !settings.windowsSavePath
     : (!settings.distro || !settings.savePath);
@@ -63,11 +65,16 @@ export function MainApp() {
           return;
         }
         const names = await invoke<string[]>("list_local_image_files", { dir: settings.windowsSavePath });
-        setFiles(names.map(name => ({
+        const visible = galleryMode === "focus" ? names.slice(0, 1) : names;
+        setFiles(visible.map(name => ({
           name,
           path: joinWindowsPath(settings.windowsSavePath, name),
         })));
-        setStatus(`${names.length} capture${names.length !== 1 ? "s" : ""} · Windows:${settings.windowsSavePath}`);
+        setStatus(
+          galleryMode === "focus"
+            ? `Focus mode · Windows:${settings.windowsSavePath}`
+            : `${names.length} capture${names.length !== 1 ? "s" : ""} · Windows:${settings.windowsSavePath}`
+        );
       } else {
         if (!settings.distro || !settings.savePath) {
           setStatus("No save location. Click ⚙ Settings to configure.");
@@ -78,18 +85,23 @@ export function MainApp() {
           distro: settings.distro,
           path: settings.savePath,
         });
-        setFiles(names.map(name => ({
+        const visible = galleryMode === "focus" ? names.slice(0, 1) : names;
+        setFiles(visible.map(name => ({
           name,
           path: `${settings.savePath}/${name}`,
         })));
-        setStatus(`${names.length} capture${names.length !== 1 ? "s" : ""} · ${settings.distro}:${settings.savePath}`);
+        setStatus(
+          galleryMode === "focus"
+            ? `Focus mode · ${settings.distro}:${settings.savePath}`
+            : `${names.length} capture${names.length !== 1 ? "s" : ""} · ${settings.distro}:${settings.savePath}`
+        );
       }
     } catch (err) {
       setStatus("Error loading captures: " + err);
     } finally {
       setLoading(false);
     }
-  }, [settings.saveTarget, settings.distro, settings.savePath, settings.windowsSavePath]);
+  }, [settings.saveTarget, settings.distro, settings.savePath, settings.windowsSavePath, galleryMode, reloadNonce]);
 
   useEffect(() => { loadFiles(); }, [loadFiles]);
   useEffect(() => { syncSettingsCache(); }, [syncSettingsCache]);
@@ -240,7 +252,13 @@ export function MainApp() {
   const handleSettingsSaved = () => {
     setShowSettings(false);
     syncSettingsCache();
-    loadFiles();
+    // Drop thumbnails/list immediately; the next render will re-load based on updated settings.
+    setFiles([]);
+    setSelected(new Set());
+    setLastSelected(null);
+    setPreview(null);
+    setStatus("Settings updated.");
+    setReloadNonce(n => n + 1);
   };
 
   // Keyboard shortcuts
@@ -287,27 +305,50 @@ export function MainApp() {
       {/* ── Gallery Toolbar ──────────────────────────────────────────────── */}
       <div style={S.galleryBar}>
         <span style={S.galleryLabel}>Captures</span>
-        <button
-          style={S.iconBtn}
-          onClick={handleSelectAll}
-          title={allSelected ? "Deselect all" : "Select all"}
-        >
-          {allSelected ? <CheckSquare size={14} /> : <Square size={14} />}
-        </button>
+        {galleryMode !== "focus" && (
+          <button
+            style={S.iconBtn}
+            onClick={handleSelectAll}
+            title={allSelected ? "Deselect all" : "Select all"}
+          >
+            {allSelected ? <CheckSquare size={14} /> : <Square size={14} />}
+          </button>
+        )}
 
         <div style={S.toolbarSep} />
 
         <Btn icon={<Copy size={13} />} label="Paths" onClick={handleCopyPaths} small disabled={files.length === 0} />
         <Btn icon={<ImageIcon size={13} />} label="Files (Ctrl+C)" onClick={handleCopyFiles} small disabled={files.length === 0} />
 
+        <div style={S.toolbarSep} />
+        <button
+          style={{ ...S.iconBtn, ...(galleryMode === "focus" ? { background: "#eff6ff", borderColor: "#bfdbfe", color: "#2563eb" } : {}) }}
+          onClick={() => {
+            const next = galleryMode === "focus" ? "all" : "focus";
+            saveSettings({ galleryMode: next });
+            // Drop thumbnails immediately to free RAM when entering focus mode.
+            setFiles([]);
+            setSelected(new Set());
+            setLastSelected(null);
+            setPreview(null);
+            setStatus(next === "focus" ? "Focus mode enabled (latest only)." : "Focus mode disabled.");
+            setReloadNonce(n => n + 1);
+          }}
+          title={galleryMode === "focus" ? "Exit Focus mode" : "Focus mode (latest only)"}
+        >
+          <Target size={14} />
+        </button>
+
         <div style={{ flex: 1 }} />
 
-        {someSelected && (
+        {someSelected && galleryMode !== "focus" && (
           <Btn icon={<Trash2 size={13} />} label={`Delete (${selected.size})`} onClick={handleDelete} small danger />
         )}
-        <button style={S.iconBtn} onClick={() => setViewMode(v => v === "thumbnail" ? "list" : "thumbnail")} title="Toggle view">
-          {viewMode === "thumbnail" ? <List size={14} /> : <LayoutGrid size={14} />}
-        </button>
+        {galleryMode !== "focus" && (
+          <button style={S.iconBtn} onClick={() => setViewMode(v => v === "thumbnail" ? "list" : "thumbnail")} title="Toggle view">
+            {viewMode === "thumbnail" ? <List size={14} /> : <LayoutGrid size={14} />}
+          </button>
+        )}
         <button style={S.iconBtn} onClick={loadFiles} title="Refresh">
           <RefreshCw size={14} style={{ animation: loading ? "spin 1s linear infinite" : undefined }} />
         </button>
@@ -326,6 +367,31 @@ export function MainApp() {
               </button>
             )}
           </div>
+        ) : galleryMode === "focus" ? (
+          <FocusView
+            file={files[0]}
+            settings={settings}
+            onLoadThumb={loadThumb}
+            onPreview={() => setPreview(files[0])}
+            onDelete={async () => {
+              const f = files[0];
+              if (!f) return;
+              try {
+                await (settings.saveTarget === "windows"
+                  ? invoke("delete_local_file", { path: f.path })
+                  : invoke("delete_wsl_file", { distro: settings.distro, path: f.path })
+                );
+                setFiles([]);
+                setSelected(new Set());
+                setPreview(null);
+                setStatus("Deleted 1 file.");
+                // Refresh list to show next latest (still single-item).
+                loadFiles();
+              } catch (err) {
+                setStatus("Delete failed: " + err);
+              }
+            }}
+          />
         ) : viewMode === "thumbnail" ? (
           <ThumbnailGrid
             files={files}
@@ -567,6 +633,73 @@ function ThumbnailGrid({ files, selected, onItemClick, onLoadThumb, onBandSelect
           </div>
         );
       })}
+    </div>
+  );
+}
+
+function FocusView({ file, settings, onLoadThumb, onPreview, onDelete }: {
+  file: CaptureFile;
+  settings: AppSettings;
+  onLoadThumb: (f: CaptureFile) => void;
+  onPreview: () => void;
+  onDelete: () => void;
+}) {
+  useEffect(() => {
+    if (file && !file.thumbnail) onLoadThumb(file);
+  }, [file.path, file.thumbnail, onLoadThumb]);
+
+  const subtitle = settings.saveTarget === "windows"
+    ? file.path
+    : `${settings.distro}:${file.path}`;
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 12, maxWidth: 980, width: "100%", margin: "0 auto" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+        <div style={{ minWidth: 0 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: "#0f172a", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{file.name}</div>
+          <div style={{ fontFamily: "monospace", fontSize: 11, color: "#64748b", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{subtitle}</div>
+        </div>
+        <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
+          <button
+            onClick={onPreview}
+            style={{ padding: "8px 12px", borderRadius: 10, border: "1px solid #e2e8f0", background: "white", cursor: "pointer", fontSize: 12, fontWeight: 600, color: "#334155" }}
+            title="Open preview"
+          >
+            Preview
+          </button>
+          <button
+            onClick={onDelete}
+            style={{ padding: "8px 12px", borderRadius: 10, border: "1px solid #fecaca", background: "#fef2f2", cursor: "pointer", fontSize: 12, fontWeight: 700, color: "#b91c1c" }}
+            title="Delete latest capture"
+          >
+            Delete
+          </button>
+        </div>
+      </div>
+
+      <div
+        onClick={onPreview}
+        style={{
+          borderRadius: 14,
+          border: "1px solid #e2e8f0",
+          background: "white",
+          boxShadow: "0 10px 30px rgba(0,0,0,0.08)",
+          overflow: "hidden",
+          cursor: "pointer",
+        }}
+        title="Click to preview"
+      >
+        <div style={{ height: "min(62vh, 640px)", background: "#0b1220", display: "flex", alignItems: "center", justifyContent: "center" }}>
+          {file.thumbnail ? (
+            <img src={file.thumbnail} alt={file.name} style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain", display: "block" }} />
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 10, color: "#94a3b8" }}>
+              <RefreshCw size={22} style={{ animation: "spin 1s linear infinite" }} />
+              <div style={{ fontSize: 12 }}>Loading…</div>
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

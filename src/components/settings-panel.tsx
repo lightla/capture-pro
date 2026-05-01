@@ -111,6 +111,35 @@ export function SettingsPanel() {
         </div>
       </div>
 
+      {/* Gallery */}
+      <div style={s.section}>
+        <div style={s.sectionHeader}>
+          <Monitor style={{ width: 15, height: 15, color: "#2563eb" }} />
+          <span style={s.sectionTitle}>Gallery</span>
+          <span style={{ fontSize: 10, color: "#94a3b8", marginLeft: "auto" }}>RAM-saving view</span>
+        </div>
+        <div style={s.sectionBody}>
+          <div style={s.field}>
+            <label style={s.label}>Default Gallery View</label>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button
+                style={modeBtn(settings.galleryMode !== "focus")}
+                onClick={() => update("galleryMode", "all")}
+              >
+                🖼️ All
+              </button>
+              <button
+                style={modeBtn(settings.galleryMode === "focus")}
+                onClick={() => update("galleryMode", "focus")}
+              >
+                🎯 Focus (Latest)
+              </button>
+            </div>
+            <div style={s.hint}>Focus mode only shows the newest capture to reduce memory usage.</div>
+          </div>
+        </div>
+      </div>
+
       {/* About */}
       <div style={s.section}>
         <div style={s.sectionHeader}>

@@ -10,6 +10,7 @@ export interface AppSettings {
   captureHotkey: string;
   pasteHotkey: string;
   clipboardMode: "paths" | "files";
+  galleryMode: "all" | "focus";
 }
 
 const SETTINGS_KEY = "capture-pro-settings";
@@ -22,6 +23,7 @@ export const defaultSettings: AppSettings = {
   captureHotkey: "Ctrl+Shift+Z",
   pasteHotkey: "Ctrl+Shift+V",
   clipboardMode: "paths",
+  galleryMode: "all",
 };
 
 export function loadSettings(): AppSettings {
