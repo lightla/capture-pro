@@ -25,7 +25,8 @@ declare global {
 
 export function CaptureOverlay() {
   const [background, setBackground] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
+  const [fatalError, setFatalError] = useState<string | null>(null);
   const [selection, setSelection] = useState<Rect | null>(null);
   const [saving, setSaving] = useState(false);
   const [cursor, setCursor] = useState<React.CSSProperties["cursor"]>("crosshair");
@@ -72,7 +73,8 @@ export function CaptureOverlay() {
     swapBackground(null);
     setSelection(null);
     setSaving(false);
-    setError(null);
+    setToast(null);
+    setFatalError(null);
   }, [swapBackground]);
 
   useEffect(() => {
@@ -83,7 +85,8 @@ export function CaptureOverlay() {
       startRect.current = null;
       setSelection(null);
       setSaving(false);
-      setError(null);
+      setToast(null);
+      setFatalError(null);
       cursorRef.current = "crosshair";
       setCursor("crosshair");
     };
@@ -94,12 +97,13 @@ export function CaptureOverlay() {
       swapBackground(background);
       setSelection(null);
       setSaving(false);
-      setError(null);
+      setToast(null);
+      setFatalError(null);
     };
     window.__captureProSetError = (message) => {
       resetOverlay();
       window.__captureProPendingError = undefined;
-      setError("Screenshot failed: " + message);
+      setFatalError("Screenshot failed: " + message);
     };
 
     if (window.__captureProPendingBackground) {
@@ -128,6 +132,14 @@ export function CaptureOverlay() {
     if (saving || !sel || sel.width < 4 || sel.height < 4 || !background) return;
     setSaving(true);
     try {
+      const settings = loadSettings();
+      if (settings.saveTarget === "windows") {
+        const folder = (settings.windowsSavePath || "").trim();
+        if (!folder) { setToast("⚠️ No Windows save folder. Open Settings (⚙) and choose one."); setSaving(false); return; }
+      } else {
+        if (!(settings.distro || "").trim() || !(settings.savePath || "").trim()) { setToast("⚠️ No WSL save folder. Open Settings (⚙) and choose one."); setSaving(false); return; }
+      }
+
       const w = Math.max(1, Math.round(sel.width));
       const h = Math.max(1, Math.round(sel.height));
       const img = new Image();
@@ -147,7 +159,6 @@ export function CaptureOverlay() {
       const ph = Math.max(1, Math.round(h * scaleY));
       const dataUrl = await invoke<string>("capture_region_clean", { x, y, width: pw, height: ph });
 
-      const settings = loadSettings();
       const fileName = `Snip_${Date.now()}.png`;
 
       let clipboardText: string | null = null;
@@ -190,7 +201,7 @@ export function CaptureOverlay() {
       invoke("close_overlay");
     } catch (err) {
       const message = "Save failed: " + String(err);
-      setError(message);
+      setToast(message);
       setSaving(false);
     }
   }, [saving, background]);
@@ -317,10 +328,10 @@ export function CaptureOverlay() {
   };
 
   // ── Error State ──
-  if (error) return (
+  if (fatalError) return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.8)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", color: "white", gap: 20 }}>
       <div style={{ fontSize: 18, fontWeight: "bold" }}>Capture Failed</div>
-      <div style={{ background: "rgba(255,0,0,0.2)", padding: "12px 24px", borderRadius: 8, border: "1px solid red" }}>{error}</div>
+      <div style={{ background: "rgba(255,0,0,0.2)", padding: "12px 24px", borderRadius: 8, border: "1px solid red" }}>{fatalError}</div>
       <button 
         onClick={() => invoke("show_overlay")}
         style={{ background: "white", color: "black", border: "none", padding: "8px 24px", borderRadius: 6, cursor: "pointer" }}
@@ -403,10 +414,10 @@ export function CaptureOverlay() {
         {sel && sel.width > 4 && <span style={{ fontSize: 11, color: "#60a5fa" }}>· Double-click inside to capture</span>}
       </div>
 
-      {error && (
+      {toast && (
         <div style={{ position: "absolute", top: 20, left: "50%", transform: "translateX(-50%)", background: "#dc2626", color: "white", padding: "10px 20px", borderRadius: 10, fontSize: 12, maxWidth: 400, textAlign: "center", cursor: "pointer" }}
-          onClick={() => setError(null)}>
-        ⚠️ {error} (click to dismiss)
+          onClick={() => setToast(null)}>
+        {toast} (click to dismiss)
         </div>
       )}
       <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>

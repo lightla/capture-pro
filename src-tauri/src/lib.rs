@@ -2,12 +2,15 @@ mod wsl;
 mod capture;
 mod local_fs;
 mod windows_folder_picker;
+mod settings_cache;
 #[cfg(target_os = "windows")]
 mod win_clipboard;
 use tauri::Manager;
+use tauri::Emitter;
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
+use settings_cache::{SettingsState};
 
 static ALLOW_EXIT: AtomicBool = AtomicBool::new(false);
 
@@ -54,6 +57,19 @@ fn set_clipboard_text(text: String) -> Result<(), String> {
 }
 
 async fn show_overlay_impl(app: tauri::AppHandle) {
+    // Block entering capture mode if save location isn't configured.
+    if let Some(msg) = app
+        .try_state::<SettingsState>()
+        .and_then(|s| s.0.lock().ok().and_then(|g| g.missing_save_location_message()))
+    {
+        if let Some(main) = app.get_webview_window("main") {
+            let _ = main.show();
+            let _ = main.set_focus();
+        }
+        let _ = app.emit("app-toast", msg);
+        return;
+    }
+
     if let Some(main) = app.get_webview_window("main") {
         let _ = main.hide();
     }
@@ -161,11 +177,37 @@ pub fn run() {
                             let text_path = last.text_path.clone();
 
                             let _ = tauri::async_runtime::spawn_blocking(move || {
-                                if win_clipboard::set_clipboard_files(&[file_path]).is_ok() {
+                                let mut ok = false;
+
+                                // Prefer pasting the actual image (bitmap) into apps.
+                                for _ in 0..16 {
+                                    if win_clipboard::set_clipboard_image_from_file(&file_path).is_ok() {
+                                        ok = true;
+                                        break;
+                                    }
+                                    std::thread::sleep(std::time::Duration::from_millis(50));
+                                }
+
+                                // Fallback: paste the file itself (CF_HDROP) if image format isn't accepted.
+                                if !ok {
+                                    for _ in 0..16 {
+                                        if win_clipboard::set_clipboard_files(&[file_path.clone()]).is_ok() {
+                                            ok = true;
+                                            break;
+                                        }
+                                        std::thread::sleep(std::time::Duration::from_millis(50));
+                                    }
+                                }
+
+                                if ok {
                                     let _ = win_clipboard::paste_ctrl_v();
-                                    std::thread::sleep(std::time::Duration::from_millis(90));
-                                    // Restore the path text so Ctrl+V still pastes the path after the file paste.
-                                    let _ = win_clipboard::set_clipboard_text(&text_path);
+
+                                    // Restore the path text so normal Ctrl+V still pastes the path afterwards.
+                                    // Delay so the target app has time to read the clipboard payload.
+                                    std::thread::spawn(move || {
+                                        std::thread::sleep(std::time::Duration::from_millis(500));
+                                        let _ = win_clipboard::set_clipboard_text(&text_path);
+                                    });
                                 }
                             }).await;
                         });
@@ -180,6 +222,7 @@ pub fn run() {
         )
         .setup(move |app| {
             app.manage(ClipboardState::default());
+            app.manage(SettingsState::default());
 
             // Minimize-to-tray behavior: keep service running even when user closes the window.
             if let Some(main) = app.get_webview_window("main") {
@@ -276,6 +319,7 @@ pub fn run() {
             capture::capture_full_screen_preview,
             capture::capture_region,
             capture::capture_region_clean,
+            settings_cache::set_settings_cache,
             set_last_capture_paths,
             set_clipboard_files,
             set_clipboard_text,

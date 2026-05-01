@@ -4,8 +4,8 @@
   "version": "0.1.0",
   "identifier": "com.admin.tauri-app",
   "build": {
-    "beforeDevCommand": "cmd /c ..\\\\build-frontend.cmd",
-    "beforeBuildCommand": "cmd /c ..\\\\build-frontend.cmd",
+    "beforeDevCommand": "cmd /c .\\\\build-frontend.cmd",
+    "beforeBuildCommand": "cmd /c .\\\\build-frontend.cmd",
     "frontendDist": "../dist"
   },
   "app": {

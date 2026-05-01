@@ -1,5 +1,6 @@
 // Shared state store using localStorage
 // Used to sync settings between main window and overlay window
+import { invoke } from "@tauri-apps/api/core";
 
 export interface AppSettings {
   saveTarget: "wsl" | "windows";
@@ -37,5 +38,16 @@ export function saveSettings(settings: Partial<AppSettings>) {
   const current = loadSettings();
   const updated = { ...current, ...settings };
   localStorage.setItem(SETTINGS_KEY, JSON.stringify(updated));
+
+  // Keep a lightweight settings cache in Rust so global hotkeys can validate config
+  // before opening the overlay (so we can toast in the main window).
+  invoke("set_settings_cache", {
+    settings: {
+      save_target: updated.saveTarget,
+      distro: updated.distro,
+      save_path: updated.savePath,
+      windows_save_path: updated.windowsSavePath,
+    },
+  }).catch(() => {});
   return updated;
 }

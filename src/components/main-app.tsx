@@ -20,6 +20,8 @@ interface CaptureFile {
 export function MainApp() {
   const [pinned, setPinned] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [toast, setToast] = useState<{ id: number; message: string } | null>(null);
+  const toastTimerRef = useRef<number | null>(null);
   const [files, setFiles] = useState<CaptureFile[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [lastSelected, setLastSelected] = useState<string | null>(null);
@@ -31,6 +33,18 @@ export function MainApp() {
   const missingSaveLocation = settings.saveTarget === "windows"
     ? !settings.windowsSavePath
     : (!settings.distro || !settings.savePath);
+
+  const syncSettingsCache = useCallback(async () => {
+    const s = loadSettings();
+    await invoke("set_settings_cache", {
+      settings: {
+        save_target: s.saveTarget,
+        distro: s.distro,
+        save_path: s.savePath,
+        windows_save_path: s.windowsSavePath,
+      },
+    }).catch(() => {});
+  }, []);
 
   const joinWindowsPath = (dir: string, name: string) => {
     const d = dir.endsWith("\\") || dir.endsWith("/") ? dir.slice(0, -1) : dir;
@@ -77,6 +91,35 @@ export function MainApp() {
   }, [settings.saveTarget, settings.distro, settings.savePath, settings.windowsSavePath]);
 
   useEffect(() => { loadFiles(); }, [loadFiles]);
+  useEffect(() => { syncSettingsCache(); }, [syncSettingsCache]);
+
+  // Toasts from backend (e.g. missing save folder when user triggers Capture via hotkey/menu).
+  useEffect(() => {
+    let unlisten: (() => void) | null = null;
+    (async () => {
+      const { listen } = await import("@tauri-apps/api/event");
+      unlisten = await listen<string>("app-toast", (e) => {
+        const msg = String(e.payload || "");
+        if (!msg) return;
+        setToast({ id: Date.now(), message: msg });
+      });
+    })();
+    return () => { if (unlisten) unlisten(); };
+  }, []);
+
+  // Auto-dismiss toast quickly (UX: don't leave it stuck on screen).
+  useEffect(() => {
+    if (!toast) return;
+    if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
+    toastTimerRef.current = window.setTimeout(() => {
+      setToast(null);
+      toastTimerRef.current = null;
+    }, 2000);
+    return () => {
+      if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
+      toastTimerRef.current = null;
+    };
+  }, [toast?.id]);
 
   // Auto-refresh when window regains focus (after overlay saves a file)
   useEffect(() => {
@@ -195,6 +238,7 @@ export function MainApp() {
 
   const handleSettingsSaved = () => {
     setShowSettings(false);
+    syncSettingsCache();
     loadFiles();
   };
 
@@ -297,6 +341,10 @@ export function MainApp() {
             files={files}
             selected={selected}
             onItemClick={handleItemClick}
+            onBandSelect={(next, last) => {
+              setSelected(next);
+              if (last) setLastSelected(last);
+            }}
           />
         )}
       </div>
@@ -312,6 +360,41 @@ export function MainApp() {
       </div>
 
       {/* ── Preview Modal ─────────────────────────────────────────────── */}
+      {toast && (
+        <div
+          style={{
+            position: "fixed",
+            top: 14,
+            right: 14,
+            zIndex: 99999,
+            background: "#dc2626",
+            color: "white",
+            padding: "10px 14px",
+            borderRadius: 12,
+            fontSize: 12,
+            maxWidth: 520,
+            boxShadow: "0 12px 40px rgba(0,0,0,0.25)",
+            cursor: "pointer",
+            overflow: "hidden",
+          }}
+          onClick={() => setToast(null)}
+        >
+          {toast.message}
+          <div style={{ height: 3, background: "rgba(255,255,255,0.28)", borderRadius: 999, marginTop: 8, overflow: "hidden" }}>
+            <div
+              key={toast.id}
+              style={{
+                height: "100%",
+                width: "100%",
+                background: "rgba(255,255,255,0.95)",
+                transformOrigin: "left center",
+                animation: "toastShrink 2s linear forwards",
+              }}
+            />
+          </div>
+        </div>
+      )}
+
       {preview && (
         <div style={S.modalBg} onClick={() => setPreview(null)}>
           <div style={S.previewBox} onClick={e => e.stopPropagation()}>
@@ -337,7 +420,14 @@ export function MainApp() {
         <WslBrowserModal onClose={handleSettingsSaved} />
       )}
 
-      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+      <style>{`
+        @keyframes spin { to { transform: rotate(360deg); } }
+        @keyframes toastShrink { from { transform: scaleX(1); } to { transform: scaleX(0); } }
+
+        /* Prevent native text highlight (blue selection) during drag/rubber-band. */
+        * { -webkit-user-select: none; user-select: none; }
+        input, textarea { -webkit-user-select: text; user-select: text; }
+      `}</style>
     </div>
   );
 }
@@ -470,7 +560,7 @@ function ThumbnailGrid({ files, selected, onItemClick, onLoadThumb, onBandSelect
                 : <ImageIcon size={24} style={{ color: "#e2e8f0" }} />
               }
             </div>
-            <div style={{ padding: "6px 8px", fontSize: 10, color: "#64748b", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            <div style={{ padding: "6px 8px", fontSize: 10, color: "#64748b", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", userSelect: "none" as any, WebkitUserSelect: "none" as any }}>
               {f.name}
             </div>
           </div>
@@ -480,18 +570,128 @@ function ThumbnailGrid({ files, selected, onItemClick, onLoadThumb, onBandSelect
   );
 }
 
-function ListView({ files, selected, onItemClick }: {
+function ListView({ files, selected, onItemClick, onBandSelect }: {
   files: CaptureFile[];
   selected: Set<string>;
   onItemClick: (f: CaptureFile, e: React.MouseEvent) => void;
+  onBandSelect: (next: Set<string>, lastSelected: string | null) => void;
 }) {
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const [band, setBand] = useState<{ x1: number; y1: number; x2: number; y2: number } | null>(null);
+  const bandPendingRef = useRef(false);
+  const bandActiveRef = useRef(false);
+  const bandStartRef = useRef<{ x: number; y: number } | null>(null);
+  const bandBaseRef = useRef<Set<string>>(new Set());
+
+  const intersects = (a: DOMRect, b: { left: number; top: number; right: number; bottom: number }) => {
+    return !(a.right < b.left || a.left > b.right || a.bottom < b.top || a.top > b.bottom);
+  };
+
+  const updateBandSelection = useCallback((x1: number, y1: number, x2: number, y2: number) => {
+    const left = Math.min(x1, x2);
+    const right = Math.max(x1, x2);
+    const top = Math.min(y1, y2);
+    const bottom = Math.max(y1, y2);
+
+    const el = containerRef.current;
+    if (!el) return;
+    const items = Array.from(el.querySelectorAll<HTMLElement>("[data-capture-path]"));
+    const hit: string[] = [];
+    for (const item of items) {
+      const path = item.getAttribute("data-capture-path");
+      if (!path) continue;
+      const r = item.getBoundingClientRect();
+      if (intersects(r, { left, top, right, bottom })) hit.push(path);
+    }
+
+    const next = new Set(bandBaseRef.current);
+    for (const p of hit) next.add(p);
+    const last = hit.length ? hit[hit.length - 1] : null;
+    onBandSelect(next, last);
+  }, [onBandSelect]);
+
+  useEffect(() => {
+    const onMove = (e: MouseEvent) => {
+      if (!bandPendingRef.current) return;
+      const start = bandStartRef.current;
+      if (!start) return;
+
+      const dx = e.clientX - start.x;
+      const dy = e.clientY - start.y;
+      const dist = Math.abs(dx) + Math.abs(dy);
+
+      if (!bandActiveRef.current) {
+        // Threshold so normal click doesn't clear selection.
+        if (dist < 4) return;
+        bandActiveRef.current = true;
+        setBand({ x1: start.x, y1: start.y, x2: e.clientX, y2: e.clientY });
+        updateBandSelection(start.x, start.y, e.clientX, e.clientY);
+        return;
+      }
+
+      setBand({ x1: start.x, y1: start.y, x2: e.clientX, y2: e.clientY });
+      updateBandSelection(start.x, start.y, e.clientX, e.clientY);
+    };
+
+    const onUp = () => {
+      if (!bandPendingRef.current) return;
+      bandPendingRef.current = false;
+      bandActiveRef.current = false;
+      bandStartRef.current = null;
+      setBand(null);
+    };
+
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    return () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+  }, [updateBandSelection]);
+
+  const onMouseDown = (e: React.MouseEvent) => {
+    if (e.button !== 0) return;
+
+    // Disable native text selection (blue highlight) so rubber-band works.
+    e.preventDefault();
+
+    bandPendingRef.current = true;
+    bandActiveRef.current = false;
+    bandBaseRef.current = (e.ctrlKey || e.metaKey) ? new Set(selected) : new Set();
+    bandStartRef.current = { x: e.clientX, y: e.clientY };
+
+    // If user starts drag on a row, it should still behave like Windows selection,
+    // so we don't immediately change selection until the drag passes threshold.
+  };
+
   return (
-    <div style={{ padding: "8px 14px", display: "flex", flexDirection: "column", gap: 4 }}>
+    <div
+      ref={containerRef}
+      onMouseDown={onMouseDown}
+      style={{ padding: "8px 14px", display: "flex", flexDirection: "column", gap: 4, position: "relative", userSelect: "none" as any, WebkitUserSelect: "none" as any }}
+    >
+      {band && (
+        <div
+          style={{
+            position: "fixed",
+            left: Math.min(band.x1, band.x2),
+            top: Math.min(band.y1, band.y2),
+            width: Math.abs(band.x2 - band.x1),
+            height: Math.abs(band.y2 - band.y1),
+            border: "1px solid rgba(69,163,255,0.95)",
+            background: "rgba(69,163,255,0.12)",
+            boxShadow: "0 0 0 1px rgba(0,0,0,0.15)",
+            pointerEvents: "none",
+            zIndex: 99999,
+          }}
+        />
+      )}
       {files.map(f => {
         const isSel = selected.has(f.path);
         return (
           <div
             key={f.path}
+            data-capture-path={f.path}
             onClick={e => onItemClick(f, e)}
             style={{
               display: "flex", alignItems: "center", gap: 10,
@@ -503,7 +703,7 @@ function ListView({ files, selected, onItemClick }: {
             }}
           >
             <ImageIcon size={14} style={{ color: "#60a5fa", flexShrink: 0 }} />
-            <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.name}</span>
+            <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", userSelect: "none" as any, WebkitUserSelect: "none" as any }}>{f.name}</span>
             <ChevronRight size={12} style={{ color: "#cbd5e1" }} />
           </div>
         );
