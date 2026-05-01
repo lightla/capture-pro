@@ -653,8 +653,8 @@ function FocusView({ file, settings, onLoadThumb, onPreview, onDelete }: {
     : `${settings.distro}:${file.path}`;
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 12, maxWidth: 980, width: "100%", margin: "0 auto" }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 12, maxWidth: 980, width: "100%", margin: "0 auto", padding: "14px 18px 18px", boxSizing: "border-box" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16 }}>
         <div style={{ minWidth: 0 }}>
           <div style={{ fontSize: 13, fontWeight: 700, color: "#0f172a", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{file.name}</div>
           <div style={{ fontFamily: "monospace", fontSize: 11, color: "#64748b", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{subtitle}</div>
@@ -689,9 +689,9 @@ function FocusView({ file, settings, onLoadThumb, onPreview, onDelete }: {
         }}
         title="Click to preview"
       >
-        <div style={{ height: "min(62vh, 640px)", background: "#0b1220", display: "flex", alignItems: "center", justifyContent: "center", padding: 14, boxSizing: "border-box" }}>
+        <div style={{ height: "min(62vh, 640px)", background: "#f8fafc", display: "flex", alignItems: "center", justifyContent: "center" }}>
           {file.thumbnail ? (
-            <img src={file.thumbnail} alt={file.name} style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain", display: "block" }} />
+            <img src={file.thumbnail} alt={file.name} style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
           ) : (
             <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 10, color: "#94a3b8" }}>
               <RefreshCw size={22} style={{ animation: "spin 1s linear infinite" }} />
