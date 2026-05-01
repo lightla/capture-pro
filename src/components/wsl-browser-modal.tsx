@@ -8,8 +8,10 @@ interface WslDistro { name: string; is_default: boolean; }
 export function WslBrowserModal({ onClose }: { onClose: () => void }) {
   const cfg = loadSettings();
   const [distros, setDistros] = useState<WslDistro[]>([]);
+  const [saveTarget, setSaveTarget] = useState<"wsl" | "windows">(cfg.saveTarget || "wsl");
   const [distro, setDistro] = useState(cfg.distro || "");
   const [path, setPath] = useState(cfg.savePath || "/");
+  const [winPath, setWinPath] = useState(cfg.windowsSavePath || "");
   const [dirs, setDirs] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [clipMode, setClipMode] = useState<"paths"|"files">(cfg.clipboardMode || "paths");
@@ -17,6 +19,7 @@ export function WslBrowserModal({ onClose }: { onClose: () => void }) {
   const [error, setError] = useState("");
 
   useEffect(() => {
+    if (saveTarget !== "wsl") return;
     invoke<WslDistro[]>("list_wsl_distros").then(list => {
       setDistros(list);
       if (!distro && list.length > 0) {
@@ -24,9 +27,10 @@ export function WslBrowserModal({ onClose }: { onClose: () => void }) {
         setDistro(d.name);
       }
     }).catch(() => setError("Cannot list WSL distros"));
-  }, []);
+  }, [saveTarget]);
 
   useEffect(() => {
+    if (saveTarget !== "wsl") return;
     if (!distro) return;
     setLoading(true);
     setDirs([]);
@@ -34,7 +38,7 @@ export function WslBrowserModal({ onClose }: { onClose: () => void }) {
       .then(setDirs)
       .catch(e => setError(String(e)))
       .finally(() => setLoading(false));
-  }, [distro, path]);
+  }, [saveTarget, distro, path]);
 
   const goHome = async () => {
     const home = await invoke<string>("get_wsl_home_directory", { distro }).catch(() => "/home");
@@ -52,7 +56,13 @@ export function WslBrowserModal({ onClose }: { onClose: () => void }) {
   };
 
   const handleSave = () => {
-    saveSettings({ distro, savePath: path, clipboardMode: clipMode });
+    saveSettings({
+      saveTarget,
+      distro: saveTarget === "wsl" ? distro : "",
+      savePath: saveTarget === "wsl" ? path : "",
+      windowsSavePath: saveTarget === "windows" ? winPath : "",
+      clipboardMode: clipMode
+    });
     setSaved(true);
     setTimeout(() => { setSaved(false); onClose(); }, 800);
   };
@@ -76,7 +86,29 @@ export function WslBrowserModal({ onClose }: { onClose: () => void }) {
 
         <div style={{ overflowY: "auto", padding: 20, display: "flex", flexDirection: "column", gap: 18 }}>
 
+          {/* Target */}
+          <div>
+            <label style={L.label}>Save To</label>
+            <div style={{ display: "flex", gap: 8 }}>
+              {(["windows", "wsl"] as const).map(t => (
+                <button
+                  key={t}
+                  onClick={() => { setSaveTarget(t); setError(""); }}
+                  style={{
+                    flex: 1, padding: "10px 0", borderRadius: 10, cursor: "pointer", fontSize: 12, fontWeight: 600, transition: "all 0.15s",
+                    border: saveTarget === t ? "1px solid #93c5fd" : "1px solid #e2e8f0",
+                    background: saveTarget === t ? "#eff6ff" : "white",
+                    color: saveTarget === t ? "#2563eb" : "#64748b",
+                  }}
+                >
+                  {t === "windows" ? "🪟 Windows" : "🐧 WSL"}
+                </button>
+              ))}
+            </div>
+          </div>
+
           {/* Distro */}
+          {saveTarget === "wsl" && (
           <div>
             <label style={L.label}>WSL Distribution</label>
             <div style={{ display: "flex", gap: 8 }}>
@@ -93,8 +125,10 @@ export function WslBrowserModal({ onClose }: { onClose: () => void }) {
               <button onClick={goHome} style={L.iconBtn} title="Go to home"><Home size={14} /></button>
             </div>
           </div>
+          )}
 
           {/* Save path browser */}
+          {saveTarget === "wsl" ? (
           <div>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
               <label style={L.label}>Save Location</label>
@@ -147,6 +181,20 @@ export function WslBrowserModal({ onClose }: { onClose: () => void }) {
               )}
             </div>
           </div>
+          ) : (
+            <div>
+              <label style={L.label}>Save Location</label>
+              <input
+                value={winPath}
+                onChange={(e) => setWinPath(e.target.value)}
+                placeholder="e.g. C:\\Users\\You\\Pictures\\CapturePro"
+                style={{ width: "100%", height: 38, borderRadius: 9, border: "1px solid #e2e8f0", padding: "0 12px", fontSize: 13, background: "#fafbfc", outline: "none", fontFamily: "monospace" }}
+              />
+              <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 6 }}>
+                Tip: set a real Windows folder path (the app will create it if missing).
+              </div>
+            </div>
+          )}
 
           {/* Clipboard mode */}
           <div>
@@ -159,7 +207,7 @@ export function WslBrowserModal({ onClose }: { onClose: () => void }) {
                   background: clipMode === mode ? "#eff6ff" : "white",
                   color: clipMode === mode ? "#2563eb" : "#64748b",
                 }}>
-                  {mode === "paths" ? "📋 Paths (for Agent)" : "📁 Files (paste into apps)"}
+                  {mode === "paths" ? "📋 Paths" : "📁 Files"}
                 </button>
               ))}
             </div>
@@ -171,9 +219,15 @@ export function WslBrowserModal({ onClose }: { onClose: () => void }) {
         {/* Footer */}
         <div style={{ padding: "14px 20px", borderTop: "1px solid #f1f5f9", display: "flex", justifyContent: "space-between", alignItems: "center", background: "#fafbfc" }}>
           <div style={{ fontSize: 12, color: "#64748b" }}>
-            <span style={{ color: "#2563eb", fontWeight: 600 }}>{distro || "—"}</span>
-            <span style={{ margin: "0 6px", color: "#cbd5e1" }}>›</span>
-            <span style={{ fontFamily: "monospace", fontSize: 11 }}>{path}</span>
+            {saveTarget === "wsl" ? (
+              <>
+                <span style={{ color: "#2563eb", fontWeight: 600 }}>{distro || "—"}</span>
+                <span style={{ margin: "0 6px", color: "#cbd5e1" }}>›</span>
+                <span style={{ fontFamily: "monospace", fontSize: 11 }}>{path}</span>
+              </>
+            ) : (
+              <span style={{ fontFamily: "monospace", fontSize: 11 }}>{winPath || "—"}</span>
+            )}
           </div>
           <div style={{ display: "flex", gap: 8 }}>
             <button onClick={onClose} style={{ padding: "9px 18px", borderRadius: 10, border: "1px solid #e2e8f0", background: "white", cursor: "pointer", fontSize: 13, color: "#64748b" }}>Cancel</button>

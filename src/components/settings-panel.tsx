@@ -68,12 +68,17 @@ export function SettingsPanel() {
         </div>
         <div style={s.sectionBody}>
           <div style={s.field}>
-            <label style={s.label}>WSL Distribution</label>
-            <div style={s.readonlyBox}>{settings.distro || "Not set — configure in Browse tab"}</div>
+            <label style={s.label}>Save To</label>
+            <div style={s.readonlyBox}>{settings.saveTarget === "windows" ? "Windows" : "WSL"}</div>
           </div>
           <div style={s.field}>
-            <label style={s.label}>Save Path</label>
-            <div style={s.readonlyBox}>{settings.savePath || "Not set — configure in Browse tab"}</div>
+            <label style={s.label}>Folder</label>
+            <div style={s.readonlyBox}>
+              {settings.saveTarget === "windows"
+                ? (settings.windowsSavePath || "Not set — configure in Browse tab")
+                : (settings.distro && settings.savePath ? `${settings.distro}:${settings.savePath}` : "Not set — configure in Browse tab")
+              }
+            </div>
             <div style={s.hint}>Change this by selecting a folder in the Browse tab</div>
           </div>
         </div>
@@ -94,14 +99,12 @@ export function SettingsPanel() {
                 onClick={() => update("clipboardMode", "paths")}
               >
                 📋 Paths
-                <div style={{ fontSize: 10, fontWeight: 400, color: "inherit", marginTop: 2 }}>For CLI Agent</div>
               </button>
               <button
                 style={modeBtn(settings.clipboardMode === "files")}
                 onClick={() => update("clipboardMode", "files")}
               >
                 📁 Files
-                <div style={{ fontSize: 10, fontWeight: 400, color: "inherit", marginTop: 2 }}>For paste in apps</div>
               </button>
             </div>
           </div>

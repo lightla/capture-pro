@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { loadSettings } from "@/lib/store";
@@ -28,30 +28,53 @@ export function MainApp() {
   const [preview, setPreview] = useState<CaptureFile | null>(null);
   const [status, setStatus] = useState("Ready.");
   const settings = loadSettings();
+  const missingSaveLocation = settings.saveTarget === "windows"
+    ? !settings.windowsSavePath
+    : (!settings.distro || !settings.savePath);
+
+  const joinWindowsPath = (dir: string, name: string) => {
+    const d = dir.endsWith("\\") || dir.endsWith("/") ? dir.slice(0, -1) : dir;
+    return `${d}\\${name}`;
+  };
 
   // Load gallery
   const loadFiles = useCallback(async () => {
-    if (!settings.distro || !settings.savePath) {
-      setStatus("No save location. Click ⚙ Settings to configure.");
-      return;
-    }
     setLoading(true);
     try {
-      const names = await invoke<string[]>("list_wsl_image_files", {
-        distro: settings.distro,
-        path: settings.savePath,
-      });
-      setFiles(names.map(name => ({
-        name,
-        path: `${settings.savePath}/${name}`,
-      })));
-      setStatus(`${names.length} capture${names.length !== 1 ? "s" : ""} · ${settings.distro}:${settings.savePath}`);
+      if (settings.saveTarget === "windows") {
+        if (!settings.windowsSavePath) {
+          setStatus("No save location. Click ⚙ Settings to configure.");
+          setFiles([]);
+          return;
+        }
+        const names = await invoke<string[]>("list_local_image_files", { dir: settings.windowsSavePath });
+        setFiles(names.map(name => ({
+          name,
+          path: joinWindowsPath(settings.windowsSavePath, name),
+        })));
+        setStatus(`${names.length} capture${names.length !== 1 ? "s" : ""} · Windows:${settings.windowsSavePath}`);
+      } else {
+        if (!settings.distro || !settings.savePath) {
+          setStatus("No save location. Click ⚙ Settings to configure.");
+          setFiles([]);
+          return;
+        }
+        const names = await invoke<string[]>("list_wsl_image_files", {
+          distro: settings.distro,
+          path: settings.savePath,
+        });
+        setFiles(names.map(name => ({
+          name,
+          path: `${settings.savePath}/${name}`,
+        })));
+        setStatus(`${names.length} capture${names.length !== 1 ? "s" : ""} · ${settings.distro}:${settings.savePath}`);
+      }
     } catch (err) {
       setStatus("Error loading captures: " + err);
     } finally {
       setLoading(false);
     }
-  }, [settings.distro, settings.savePath]);
+  }, [settings.saveTarget, settings.distro, settings.savePath, settings.windowsSavePath]);
 
   useEffect(() => { loadFiles(); }, [loadFiles]);
 
@@ -67,13 +90,12 @@ export function MainApp() {
   const loadThumb = useCallback(async (file: CaptureFile) => {
     if (file.thumbnail) return;
     try {
-      const data = await invoke<string>("read_wsl_image_as_base64", {
-        distro: settings.distro,
-        path: file.path,
-      });
+      const data = settings.saveTarget === "windows"
+        ? await invoke<string>("read_local_image_as_base64", { path: file.path })
+        : await invoke<string>("read_wsl_image_as_base64", { distro: settings.distro, path: file.path });
       setFiles(prev => prev.map(f => f.path === file.path ? { ...f, thumbnail: data } : f));
     } catch { /* ignore */ }
-  }, [settings.distro]);
+  }, [settings.saveTarget, settings.distro]);
 
   // Selection logic (Windows-style)
   const handleItemClick = useCallback((file: CaptureFile, e: React.MouseEvent) => {
@@ -124,7 +146,9 @@ export function MainApp() {
     if (!toDelete.length) return;
     try {
       await Promise.all(toDelete.map(path =>
-        invoke("delete_wsl_file", { distro: settings.distro, path })
+        settings.saveTarget === "windows"
+          ? invoke("delete_local_file", { path })
+          : invoke("delete_wsl_file", { distro: settings.distro, path })
       ));
       setFiles(prev => prev.filter(f => !selected.has(f.path)));
       setSelected(new Set());
@@ -143,13 +167,14 @@ export function MainApp() {
   };
 
   const handleCopyFiles = async () => {
-    // Copy UNC paths (Windows can use these to paste into apps)
-    const paths = selected.size > 0
-      ? Array.from(selected)
-      : files.map(f => f.path);
-    const uncPaths = paths.map(p =>
-      `\\\\wsl.localhost\\${settings.distro}${p.replace(/\//g, "\\")}`
-    );
+    const paths = selected.size > 0 ? Array.from(selected) : files.map(f => f.path);
+    if (settings.saveTarget === "windows") {
+      await writeText(paths.join("\n")).catch(console.error);
+      setStatus(`Copied ${paths.length} file path(s) to clipboard.`);
+      return;
+    }
+    // WSL: copy UNC paths so Windows apps can access the files.
+    const uncPaths = paths.map(p => `\\\\wsl.localhost\\${settings.distro}${p.replace(/\//g, "\\")}`);
     await writeText(uncPaths.join("\n")).catch(console.error);
     setStatus(`Copied ${uncPaths.length} UNC path(s) to clipboard.`);
   };
@@ -244,7 +269,7 @@ export function MainApp() {
             <Camera size={36} style={{ color: "#cbd5e1", marginBottom: 12 }} />
             <div style={{ fontSize: 14, fontWeight: 500, color: "#64748b" }}>No captures yet</div>
             <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 4 }}>Press Ctrl+Shift+Z or click Capture to start</div>
-            {(!settings.distro || !settings.savePath) && (
+            {missingSaveLocation && (
               <button onClick={() => setShowSettings(true)} style={{ marginTop: 12, padding: "8px 16px", borderRadius: 8, background: "#2563eb", color: "white", border: "none", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>
                 Configure Save Location
               </button>
@@ -256,6 +281,10 @@ export function MainApp() {
             selected={selected}
             onItemClick={handleItemClick}
             onLoadThumb={loadThumb}
+            onBandSelect={(next, last) => {
+              setSelected(next);
+              if (last) setLastSelected(last);
+            }}
           />
         ) : (
           <ListView
@@ -291,7 +320,7 @@ export function MainApp() {
                 </div>
             }
             <div style={{ marginTop: 10, fontFamily: "monospace", fontSize: 11, color: "#64748b", background: "#f8fafc", borderRadius: 8, padding: "6px 10px" }}>
-              {settings.distro}:{preview.path}
+              {settings.saveTarget === "windows" ? preview.path : `${settings.distro}:${preview.path}`}
             </div>
           </div>
         </div>
@@ -309,19 +338,110 @@ export function MainApp() {
 
 // ── Sub-components ───────────────────────────────────────────────────────────
 
-function ThumbnailGrid({ files, selected, onItemClick, onLoadThumb }: {
+function ThumbnailGrid({ files, selected, onItemClick, onLoadThumb, onBandSelect }: {
   files: CaptureFile[];
   selected: Set<string>;
   onItemClick: (f: CaptureFile, e: React.MouseEvent) => void;
   onLoadThumb: (f: CaptureFile) => void;
+  onBandSelect: (next: Set<string>, lastSelected: string | null) => void;
 }) {
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const [band, setBand] = useState<{ x1: number; y1: number; x2: number; y2: number } | null>(null);
+  const bandActiveRef = useRef(false);
+  const bandBaseRef = useRef<Set<string>>(new Set());
+  const bandStartRef = useRef<{ x: number; y: number } | null>(null);
+
+  const intersects = (a: DOMRect, b: { left: number; top: number; right: number; bottom: number }) => {
+    return !(a.right < b.left || a.left > b.right || a.bottom < b.top || a.top > b.bottom);
+  };
+
+  const updateBandSelection = useCallback((x1: number, y1: number, x2: number, y2: number) => {
+    const left = Math.min(x1, x2);
+    const right = Math.max(x1, x2);
+    const top = Math.min(y1, y2);
+    const bottom = Math.max(y1, y2);
+
+    const el = containerRef.current;
+    if (!el) return;
+    const items = Array.from(el.querySelectorAll<HTMLElement>("[data-capture-path]"));
+    const hit: string[] = [];
+    for (const item of items) {
+      const path = item.getAttribute("data-capture-path");
+      if (!path) continue;
+      const r = item.getBoundingClientRect();
+      if (intersects(r, { left, top, right, bottom })) hit.push(path);
+    }
+
+    const next = new Set(bandBaseRef.current);
+    for (const p of hit) next.add(p);
+    const last = hit.length ? hit[hit.length - 1] : null;
+    onBandSelect(next, last);
+  }, [onBandSelect]);
+
+  useEffect(() => {
+    const onMove = (e: MouseEvent) => {
+      if (!bandActiveRef.current) return;
+      const start = bandStartRef.current;
+      if (!start) return;
+      setBand({ x1: start.x, y1: start.y, x2: e.clientX, y2: e.clientY });
+      updateBandSelection(start.x, start.y, e.clientX, e.clientY);
+    };
+    const onUp = () => {
+      if (!bandActiveRef.current) return;
+      bandActiveRef.current = false;
+      bandStartRef.current = null;
+      setBand(null);
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    return () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+  }, [updateBandSelection]);
+
+  const onMouseDown = (e: React.MouseEvent) => {
+    if (e.button !== 0) return;
+    const target = e.target as HTMLElement;
+    if (target.closest("[data-capture-card='1']")) return;
+
+    bandActiveRef.current = true;
+    bandBaseRef.current = (e.ctrlKey || e.metaKey) ? new Set(selected) : new Set();
+    bandStartRef.current = { x: e.clientX, y: e.clientY };
+    setBand({ x1: e.clientX, y1: e.clientY, x2: e.clientX, y2: e.clientY });
+    onBandSelect(new Set(bandBaseRef.current), null);
+    e.preventDefault();
+  };
+
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))", gap: 10, padding: 14 }}>
+    <div
+      ref={containerRef}
+      onMouseDown={onMouseDown}
+      style={{ position: "relative", display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))", gap: 10, padding: 14 }}
+    >
+      {band && (
+        <div
+          style={{
+            position: "fixed",
+            left: Math.min(band.x1, band.x2),
+            top: Math.min(band.y1, band.y2),
+            width: Math.abs(band.x2 - band.x1),
+            height: Math.abs(band.y2 - band.y1),
+            border: "1px solid rgba(69,163,255,0.95)",
+            background: "rgba(69,163,255,0.12)",
+            boxShadow: "0 0 0 1px rgba(0,0,0,0.15)",
+            pointerEvents: "none",
+            zIndex: 99999,
+          }}
+        />
+      )}
       {files.map(f => {
         const isSel = selected.has(f.path);
         return (
           <div
             key={f.path}
+            data-capture-card="1"
+            data-capture-path={f.path}
             onClick={e => onItemClick(f, e)}
             onMouseEnter={() => onLoadThumb(f)}
             style={{

@@ -24,29 +24,48 @@ export function CaptureGallery() {
 
   const settings = loadSettings();
 
+  const joinWindowsPath = (dir: string, name: string) => {
+    const d = dir.endsWith("\\") || dir.endsWith("/") ? dir.slice(0, -1) : dir;
+    return `${d}\\${name}`;
+  };
+
   const loadFiles = useCallback(async () => {
-    if (!settings.distro || !settings.savePath) {
-      setError("No save location configured. Set it in the Browse tab.");
-      return;
-    }
     setLoading(true);
     setError(null);
     try {
-      const names = await invoke<string[]>("list_wsl_image_files", {
-        distro: settings.distro,
-        path: settings.savePath,
-      });
-      setFiles(names.map((name) => ({
-        name,
-        path: `${settings.savePath}/${name}`,
-      })));
+      if (settings.saveTarget === "windows") {
+        if (!settings.windowsSavePath) {
+          setError("No save location configured. Set it in the Browse tab.");
+          setFiles([]);
+          return;
+        }
+        const names = await invoke<string[]>("list_local_image_files", { dir: settings.windowsSavePath });
+        setFiles(names.map((name) => ({
+          name,
+          path: joinWindowsPath(settings.windowsSavePath, name),
+        })));
+      } else {
+        if (!settings.distro || !settings.savePath) {
+          setError("No save location configured. Set it in the Browse tab.");
+          setFiles([]);
+          return;
+        }
+        const names = await invoke<string[]>("list_wsl_image_files", {
+          distro: settings.distro,
+          path: settings.savePath,
+        });
+        setFiles(names.map((name) => ({
+          name,
+          path: `${settings.savePath}/${name}`,
+        })));
+      }
       setSelected(new Set());
     } catch (err) {
       setError("Failed to load images: " + err);
     } finally {
       setLoading(false);
     }
-  }, [settings.distro, settings.savePath]);
+  }, [settings.saveTarget, settings.distro, settings.savePath, settings.windowsSavePath]);
 
   useEffect(() => { loadFiles(); }, [loadFiles]);
 
@@ -56,10 +75,9 @@ export function CaptureGallery() {
       prev.map((f) => (f.path === file.path ? { ...f, loading: true } : f))
     );
     try {
-      const data = await invoke<string>("read_wsl_image_as_base64", {
-        distro: settings.distro,
-        path: file.path,
-      });
+      const data = settings.saveTarget === "windows"
+        ? await invoke<string>("read_local_image_as_base64", { path: file.path })
+        : await invoke<string>("read_wsl_image_as_base64", { distro: settings.distro, path: file.path });
       setFiles((prev) =>
         prev.map((f) => (f.path === file.path ? { ...f, thumbnail: data, loading: false } : f))
       );
@@ -132,7 +150,9 @@ export function CaptureGallery() {
     try {
       await Promise.all(
         toDelete.map((path) =>
-          invoke("delete_wsl_file", { distro: settings.distro, path })
+          settings.saveTarget === "windows"
+            ? invoke("delete_local_file", { path })
+            : invoke("delete_wsl_file", { distro: settings.distro, path })
         )
       );
       setFiles((prev) => prev.filter((f) => !selected.has(f.path)));
@@ -178,9 +198,11 @@ export function CaptureGallery() {
           <span style={{ fontSize: 11, color: "#94a3b8", background: "#f1f5f9", borderRadius: 6, padding: "2px 8px" }}>
             {files.length} images
           </span>
-          {settings.savePath && (
+          {(settings.saveTarget === "windows" ? settings.windowsSavePath : settings.savePath) && (
             <span style={{ fontSize: 10, color: "#94a3b8", fontFamily: "monospace" }}>
-              {settings.distro}:{settings.savePath}
+              {settings.saveTarget === "windows"
+                ? `Windows:${settings.windowsSavePath}`
+                : `${settings.distro}:${settings.savePath}`}
             </span>
           )}
         </div>
@@ -306,7 +328,7 @@ export function CaptureGallery() {
               </div>
             )}
             <div style={{ fontFamily: "monospace", fontSize: 11, color: "#64748b", background: "#f8fafc", borderRadius: 8, padding: "8px 12px" }}>
-              {settings.distro}:{preview.path}
+              {settings.saveTarget === "windows" ? preview.path : `${settings.distro}:${preview.path}`}
             </div>
           </div>
         </div>

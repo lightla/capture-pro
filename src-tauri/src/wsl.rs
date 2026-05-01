@@ -3,6 +3,22 @@ use std::path::PathBuf;
 use serde::{Serialize, Deserialize};
 use base64::{Engine as _, engine::general_purpose};
 
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
+
+#[cfg(target_os = "windows")]
+const CREATE_NO_WINDOW: u32 = 0x08000000;
+
+fn wsl_command() -> Command {
+    let mut cmd = Command::new("wsl.exe");
+    // Prevent console window flashing when the app is running as a GUI process.
+    #[cfg(target_os = "windows")]
+    {
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+    cmd
+}
+
 #[derive(Serialize, Deserialize, Debug)]
 pub struct WslDistro {
     pub name: String,
@@ -11,7 +27,7 @@ pub struct WslDistro {
 
 #[tauri::command]
 pub async fn list_wsl_distros() -> Result<Vec<WslDistro>, String> {
-    let output = Command::new("wsl.exe")
+    let output = wsl_command()
         .args(["--list", "--quiet"])
         .output()
         .map_err(|e| e.to_string())?;
@@ -49,13 +65,17 @@ pub async fn list_wsl_distros() -> Result<Vec<WslDistro>, String> {
 
 #[tauri::command]
 pub async fn list_wsl_directories(distro: String, path: String) -> Result<Vec<String>, String> {
-    let output = Command::new("wsl.exe")
-        .args(["-d", &distro, "--", "bash", "-c", &format!("ls -p \"{}\" | grep /", path)])
+    // `grep` returns exit code 1 when there are no matches, which is not an error for us.
+    // Also suppress `ls` errors from polluting the UI when a folder has no subdirectories.
+    let cmd = format!("(ls -p \"{}\" 2>/dev/null | grep / || true)", path);
+    let output = wsl_command()
+        .args(["-d", &distro, "--", "bash", "-c", &cmd])
         .output()
         .map_err(|e| e.to_string())?;
 
-    if !output.status.success() {
-        let err = String::from_utf8_lossy(&output.stderr).to_string();
+    // If `ls` fails (e.g. path doesn't exist), it will write to stderr.
+    if !output.stderr.is_empty() && !output.status.success() {
+        let err = String::from_utf8_lossy(&output.stderr).trim().to_string();
         return Err(format!("Failed to list directories: {}", err));
     }
 
@@ -71,7 +91,7 @@ pub async fn list_wsl_directories(distro: String, path: String) -> Result<Vec<St
 
 #[tauri::command]
 pub async fn get_wsl_home_directory(distro: String) -> Result<String, String> {
-    let output = Command::new("wsl.exe")
+    let output = wsl_command()
         .args(["-d", &distro, "--", "bash", "-c", "echo $HOME"])
         .output()
         .map_err(|e| e.to_string())?;
@@ -91,7 +111,7 @@ pub async fn list_wsl_image_files(distro: String, path: String) -> Result<Vec<St
         "ls -1t \"{}\" 2>/dev/null | grep -iE '\\.(png|jpg|jpeg|gif|webp)$'",
         path
     );
-    let output = Command::new("wsl.exe")
+    let output = wsl_command()
         .args(["-d", &distro, "--", "bash", "-c", &cmd])
         .output()
         .map_err(|e| e.to_string())?;
@@ -108,7 +128,7 @@ pub async fn list_wsl_image_files(distro: String, path: String) -> Result<Vec<St
 
 #[tauri::command]
 pub async fn read_wsl_image_as_base64(distro: String, path: String) -> Result<String, String> {
-    let output = Command::new("wsl.exe")
+    let output = wsl_command()
         .args(["-d", &distro, "--", "bash", "-c", &format!("base64 -w 0 \"{}\"", path)])
         .output()
         .map_err(|e| e.to_string())?;
@@ -133,7 +153,7 @@ pub async fn read_wsl_image_as_base64(distro: String, path: String) -> Result<St
 
 #[tauri::command]
 pub async fn delete_wsl_file(distro: String, path: String) -> Result<(), String> {
-    let output = Command::new("wsl.exe")
+    let output = wsl_command()
         .args(["-d", &distro, "--", "bash", "-c", &format!("rm -f \"{}\"", path)])
         .output()
         .map_err(|e| e.to_string())?;
@@ -165,7 +185,7 @@ pub async fn write_wsl_file(distro: String, path: String, content: Vec<u8>) -> R
     // Use single quotes inside bash command to avoid quoting conflicts
     let cmd = format!("mkdir -p '{}' && cat > '{}'", dir, path);
 
-    let mut child = Command::new("wsl.exe")
+    let mut child = wsl_command()
         .args(["-d", &distro, "--", "bash", "-c", &cmd])
         .stdin(std::process::Stdio::piped())
         .spawn()
@@ -221,7 +241,7 @@ fn write_wsl_file_sync(distro: &str, path: &str, content: &[u8]) -> Result<(), S
     let dir = if let Some(pos) = path.rfind('/') { &path[..pos] } else { "/" };
     let cmd = format!("mkdir -p '{}' && cat > '{}'", dir, path);
 
-    let mut child = Command::new("wsl.exe")
+    let mut child = wsl_command()
         .args(["-d", distro, "--", "bash", "-c", &cmd])
         .stdin(std::process::Stdio::piped())
         .spawn()

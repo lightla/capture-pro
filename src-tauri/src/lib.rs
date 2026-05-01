@@ -1,10 +1,43 @@
 mod wsl;
 mod capture;
+mod local_fs;
+#[cfg(target_os = "windows")]
+mod win_clipboard;
 use tauri::Manager;
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Mutex;
 
 static ALLOW_EXIT: AtomicBool = AtomicBool::new(false);
+
+#[derive(Clone, Debug, Default)]
+struct LastCapture {
+    text_path: String,
+    file_path: Option<String>,
+}
+
+#[derive(Default)]
+struct ClipboardState(Mutex<Option<LastCapture>>);
+
+#[tauri::command]
+fn set_last_capture_paths(state: tauri::State<'_, ClipboardState>, text_path: String, file_path: Option<String>) {
+    if let Ok(mut guard) = state.0.lock() {
+        *guard = Some(LastCapture { text_path, file_path });
+    }
+}
+
+#[tauri::command]
+fn set_clipboard_files(paths: Vec<String>) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        return win_clipboard::set_clipboard_files(&paths);
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = paths;
+        Err("File clipboard is only supported on Windows".to_string())
+    }
+}
 
 async fn show_overlay_impl(app: tauri::AppHandle) {
     if let Some(main) = app.get_webview_window("main") {
@@ -76,12 +109,17 @@ fn hide_main_window(app: tauri::AppHandle) {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let hotkey = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyZ);
+    let paste_hotkey = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyV);
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new()
             .with_handler(move |app, shortcut, event| {
-                if shortcut == &hotkey && event.state() == ShortcutState::Pressed {
+                if event.state() != ShortcutState::Pressed {
+                    return;
+                }
+
+                if shortcut == &hotkey {
                     eprintln!("[CaptureProKey] Ctrl+Shift+Z triggered");
                     if let Some(overlay) = app.get_webview_window("overlay") {
                         let is_visible = overlay.is_visible().unwrap_or(false);
@@ -94,11 +132,40 @@ pub fn run() {
                             });
                         }
                     }
+                    return;
+                }
+
+                if shortcut == &paste_hotkey {
+                    #[cfg(target_os = "windows")]
+                    {
+                        let app = app.clone();
+                        tauri::async_runtime::spawn(async move {
+                            let state = app.state::<ClipboardState>();
+                            let last = state.0.lock().ok().and_then(|g| (*g).clone());
+                            let Some(last) = last else { return; };
+                            let Some(file_path) = last.file_path.clone() else { return; };
+                            let text_path = last.text_path.clone();
+
+                            let _ = tauri::async_runtime::spawn_blocking(move || {
+                                if win_clipboard::set_clipboard_files(&[file_path]).is_ok() {
+                                    let _ = win_clipboard::paste_ctrl_v();
+                                    // Restore the path text so Ctrl+V still pastes the path after the file paste.
+                                    let _ = win_clipboard::set_clipboard_text(&text_path);
+                                }
+                            }).await;
+                        });
+                    }
+                    #[cfg(not(target_os = "windows"))]
+                    {
+                        eprintln!("[CaptureProKey] Paste hotkey not supported on this OS");
+                    }
                 }
             })
             .build()
         )
         .setup(move |app| {
+            app.manage(ClipboardState::default());
+
             // Minimize-to-tray behavior: keep service running even when user closes the window.
             if let Some(main) = app.get_webview_window("main") {
                 let main_window = main.clone();
@@ -167,6 +234,10 @@ pub fn run() {
                 Ok(_) => eprintln!("[CaptureProKey] Shortcut Ctrl+Shift+Z registered OK"),
                 Err(e) => eprintln!("[CaptureProKey] FAILED to register shortcut: {:?}", e),
             }
+            match app.global_shortcut().register(paste_hotkey) {
+                Ok(_) => eprintln!("[CaptureProKey] Shortcut Ctrl+Shift+V registered OK"),
+                Err(e) => eprintln!("[CaptureProKey] FAILED to register paste shortcut: {:?}", e),
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -175,14 +246,20 @@ pub fn run() {
             wsl::get_wsl_home_directory,
             wsl::write_wsl_file,
             wsl::write_wsl_base64_file,
+            wsl::queue_wsl_base64_write,
             wsl::list_wsl_image_files,
             wsl::read_wsl_image_as_base64,
             wsl::delete_wsl_file,
+            local_fs::list_local_image_files,
+            local_fs::read_local_image_as_base64,
+            local_fs::delete_local_file,
+            local_fs::queue_local_base64_write,
             capture::capture_full_screen,
             capture::capture_full_screen_preview,
             capture::capture_region,
             capture::capture_region_clean,
-            wsl::queue_wsl_base64_write,
+            set_last_capture_paths,
+            set_clipboard_files,
             close_overlay,
             show_overlay,
             set_always_on_top,

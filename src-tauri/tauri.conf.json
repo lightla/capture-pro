@@ -4,9 +4,8 @@
   "version": "0.1.0",
   "identifier": "com.admin.tauri-app",
   "build": {
-    "beforeDevCommand": "npm run dev",
-    "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "npm run build",
+    "beforeDevCommand": "cmd /c ..\\\\build-frontend.cmd",
+    "beforeBuildCommand": "cmd /c ..\\\\build-frontend.cmd",
     "frontendDist": "../dist"
   },
   "app": {

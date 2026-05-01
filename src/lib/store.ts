@@ -2,8 +2,10 @@
 // Used to sync settings between main window and overlay window
 
 export interface AppSettings {
+  saveTarget: "wsl" | "windows";
   distro: string;
   savePath: string;
+  windowsSavePath: string;
   captureHotkey: string;
   pasteHotkey: string;
   clipboardMode: "paths" | "files";
@@ -12,8 +14,10 @@ export interface AppSettings {
 const SETTINGS_KEY = "capture-pro-settings";
 
 export const defaultSettings: AppSettings = {
+  saveTarget: "wsl",
   distro: "",
   savePath: "/home",
+  windowsSavePath: "",
   captureHotkey: "Ctrl+Shift+Z",
   pasteHotkey: "Ctrl+Shift+V",
   clipboardMode: "paths",

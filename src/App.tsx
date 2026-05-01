@@ -3,6 +3,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { MainApp } from "./components/main-app";
 import { CaptureOverlay } from "./components/capture-overlay";
 import "./App.css";
+import { ErrorBoundary } from "./error-boundary";
 
 function useWindowLabel() {
   const [label] = useState(() => {
@@ -13,8 +14,11 @@ function useWindowLabel() {
 
 function App() {
   const windowLabel = useWindowLabel();
-  if (windowLabel === "overlay") return <CaptureOverlay />;
-  return <MainApp />;
+  return (
+    <ErrorBoundary>
+      {windowLabel === "overlay" ? <CaptureOverlay /> : <MainApp />}
+    </ErrorBoundary>
+  );
 }
 
 export default App;

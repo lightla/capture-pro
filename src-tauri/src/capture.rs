@@ -88,7 +88,7 @@ fn overlay_cursor_on_capture(image: &mut image::RgbaImage, origin_x: i32, origin
         }
 
         let mut bits: *mut core::ffi::c_void = null_mut();
-        let mut bmi = BITMAPINFO {
+        let bmi = BITMAPINFO {
             bmiHeader: BITMAPINFOHEADER {
                 biSize: size_of::<BITMAPINFOHEADER>() as u32,
                 biWidth: width,

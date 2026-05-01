@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { loadSettings } from "@/lib/store";
+import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 
 interface Rect { x: number; y: number; width: number; height: number; }
 
@@ -147,11 +148,42 @@ export function CaptureOverlay() {
       const dataUrl = await invoke<string>("capture_region_clean", { x, y, width: pw, height: ph });
 
       const settings = loadSettings();
-      const distro = settings.distro || "Ubuntu-24.04";
-      const savePath = settings.savePath || "/home";
-      const path = `${savePath}/Snip_${Date.now()}.png`;
-      // Save in background so the next capture starts instantly.
-      invoke("queue_wsl_base64_write", { distro, path, dataUrl });
+      const fileName = `Snip_${Date.now()}.png`;
+
+      let clipboardText: string | null = null;
+      let filePathForPaste: string | null = null;
+
+      if (settings.saveTarget === "windows") {
+        const folder = (settings.windowsSavePath || "").trim();
+        if (!folder) throw new Error("No Windows save folder configured");
+        const normalized = folder.endsWith("\\") || folder.endsWith("/") ? folder.slice(0, -1) : folder;
+        const path = `${normalized}\\${fileName}`;
+        invoke("queue_local_base64_write", { path, dataUrl });
+        clipboardText = path;
+        filePathForPaste = path;
+      } else {
+        const distro = settings.distro || "Ubuntu-24.04";
+        const savePath = settings.savePath || "/home";
+        const path = `${savePath}/Snip_${Date.now()}.png`;
+        // Save in background so the next capture starts instantly.
+        invoke("queue_wsl_base64_write", { distro, path, dataUrl });
+        // Use UNC path so Windows apps can open/paste the file.
+        const unc = `\\\\wsl.localhost\\${distro}${path.replace(/\//g, "\\")}`;
+        clipboardText = unc;
+        filePathForPaste = unc;
+      }
+
+      if (clipboardText) {
+        if (settings.clipboardMode === "files" && filePathForPaste) {
+          // On Windows, file-drop is what allows Ctrl+V to paste into apps.
+          await invoke("set_clipboard_files", { paths: [filePathForPaste] }).catch(() => {});
+        } else {
+          await writeText(clipboardText).catch(() => {});
+        }
+        // Always keep the path string handy for users (Ctrl+V) even if mode is files.
+        // (We still store it for the global paste hotkey in Rust.)
+        invoke("set_last_capture_paths", { text_path: clipboardText, file_path: filePathForPaste }).catch(() => {});
+      }
 
       setSaving(false);
       invoke("close_overlay");
