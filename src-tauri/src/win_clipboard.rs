@@ -1,8 +1,8 @@
 #[cfg(target_os = "windows")]
-use windows::Win32::Foundation::{HWND, HANDLE};
+use windows::Win32::Foundation::{HGLOBAL, HWND, HANDLE};
 #[cfg(target_os = "windows")]
 use windows::Win32::System::DataExchange::{
-    CloseClipboard, EmptyClipboard, OpenClipboard, SetClipboardData,
+    CloseClipboard, EmptyClipboard, GetClipboardData, OpenClipboard, SetClipboardData,
 };
 #[cfg(target_os = "windows")]
 use windows::Win32::System::Memory::{
@@ -89,6 +89,49 @@ pub fn set_clipboard_text(text: &str) -> Result<(), String> {
         std::ptr::copy_nonoverlapping(wide.as_ptr(), ptr, wide.len());
         let _ = GlobalUnlock(hmem);
         set_clipboard_data(CF_UNICODETEXT.0 as u32, HANDLE(hmem.0 as isize))
+    }
+}
+
+#[cfg(target_os = "windows")]
+pub fn get_clipboard_text() -> Result<Option<String>, String> {
+    unsafe {
+        OpenClipboard(HWND(0)).map_err(|e| format!("OpenClipboard failed: {}", e))?;
+        let result = (|| {
+            let handle = match GetClipboardData(CF_UNICODETEXT.0 as u32) {
+                Ok(h) => h,
+                Err(_) => return Ok(None),
+            };
+            if handle.0 == 0 {
+                return Ok(None);
+            }
+            let hglobal = HGLOBAL(handle.0 as *mut std::ffi::c_void);
+
+            let ptr = GlobalLock(hglobal) as *const u16;
+            if ptr.is_null() {
+                return Ok(None);
+            }
+
+            // Find NUL terminator.
+            let mut len = 0usize;
+            loop {
+                let ch = *ptr.add(len);
+                if ch == 0 {
+                    break;
+                }
+                len += 1;
+                if len > 2_000_000 {
+                    break;
+                }
+            }
+
+            let slice = std::slice::from_raw_parts(ptr, len);
+            let s = String::from_utf16_lossy(slice);
+            let _ = GlobalUnlock(hglobal);
+            Ok(Some(s))
+        })();
+
+        let _ = CloseClipboard();
+        result
     }
 }
 

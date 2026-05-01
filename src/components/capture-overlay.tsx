@@ -184,18 +184,21 @@ export function CaptureOverlay() {
         filePathForPaste = unc;
       }
 
-      if (clipboardText) {
-        if (settings.clipboardMode === "files" && filePathForPaste) {
-          // On Windows, file-drop is what allows Ctrl+V to paste into apps.
-          await invoke("set_clipboard_files", { paths: [filePathForPaste] }).catch(() => {});
-        } else {
-          await invoke("set_clipboard_text", { text: clipboardText })
-            .catch(async () => { await writeText(clipboardText).catch(() => {}); });
+        if (clipboardText) {
+          if (settings.clipboardMode === "files" && filePathForPaste) {
+            // On Windows, file-drop is what allows Ctrl+V to paste into apps.
+            await invoke("set_clipboard_files", { paths: [filePathForPaste] }).catch(() => {});
+          } else {
+            await invoke("set_clipboard_text", { text: clipboardText })
+              .catch(async () => { await writeText(clipboardText).catch(() => {}); });
+          }
+          invoke("debug_log", { message: `capture saved, clipboardText=${clipboardText} filePathForPaste=${filePathForPaste}` }).catch(() => {});
+          // Always keep the path string handy for users (Ctrl+V) even if mode is files.
+          // (We still store it for the global paste hotkey in Rust.)
+          await invoke("set_last_capture_paths", { textPath: clipboardText, filePath: filePathForPaste }).catch((e) => {
+            invoke("debug_log", { message: `set_last_capture_paths failed: ${String(e)}` }).catch(() => {});
+          });
         }
-        // Always keep the path string handy for users (Ctrl+V) even if mode is files.
-        // (We still store it for the global paste hotkey in Rust.)
-        invoke("set_last_capture_paths", { text_path: clipboardText, file_path: filePathForPaste }).catch(() => {});
-      }
 
       setSaving(false);
       invoke("close_overlay");

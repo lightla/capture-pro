@@ -26,6 +26,7 @@ struct ClipboardState(Mutex<Option<LastCapture>>);
 #[tauri::command]
 fn set_last_capture_paths(state: tauri::State<'_, ClipboardState>, text_path: String, file_path: Option<String>) {
     if let Ok(mut guard) = state.0.lock() {
+        eprintln!("[CaptureProKey] set_last_capture_paths text_path='{}' file_path={:?}", text_path, file_path);
         *guard = Some(LastCapture { text_path, file_path });
     }
 }
@@ -54,6 +55,11 @@ fn set_clipboard_text(text: String) -> Result<(), String> {
         let _ = text;
         Err("Text clipboard is only supported on Windows in this build".to_string())
     }
+}
+
+#[tauri::command]
+fn debug_log(message: String) {
+    eprintln!("[CaptureProDebug] {}", message);
 }
 
 async fn show_overlay_impl(app: tauri::AppHandle) {
@@ -140,11 +146,16 @@ fn hide_main_window(app: tauri::AppHandle) {
 pub fn run() {
     let hotkey = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyZ);
     let paste_hotkey = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyV);
+    // Fallback hotkey to help debug/report collisions with Ctrl+Shift+V on some systems/apps.
+    let paste_hotkey_alt = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::ALT), Code::KeyV);
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new()
             .with_handler(move |app, shortcut, event| {
+                // Diagnostic: log every shortcut callback so we can see if Ctrl+Shift+V is reaching us.
+                eprintln!("[CaptureProKey] Shortcut event: {:?} state={:?}", shortcut, event.state());
+
                 if event.state() != ShortcutState::Pressed {
                     return;
                 }
@@ -165,16 +176,47 @@ pub fn run() {
                     return;
                 }
 
-                if shortcut == &paste_hotkey {
+                if shortcut == &paste_hotkey || shortcut == &paste_hotkey_alt {
                     #[cfg(target_os = "windows")]
                     {
+                        eprintln!("[CaptureProKey] Paste hotkey triggered ({:?})", shortcut);
                         let app = app.clone();
                         tauri::async_runtime::spawn(async move {
                             let state = app.state::<ClipboardState>();
                             let last = state.0.lock().ok().and_then(|g| (*g).clone());
-                            let Some(last) = last else { return; };
-                            let Some(file_path) = last.file_path.clone() else { return; };
-                            let text_path = last.text_path.clone();
+                            let mut text_path = last.as_ref().map(|x| x.text_path.clone()).unwrap_or_default();
+                            let mut file_path = last.as_ref().and_then(|x| x.file_path.clone()).unwrap_or_default();
+
+                            // If we don't have cached last capture, fall back to current clipboard text.
+                            if file_path.is_empty() || text_path.is_empty() {
+                                match win_clipboard::get_clipboard_text() {
+                                    Ok(Some(s)) => {
+                                        // Take the first non-empty line.
+                                        let picked = s
+                                            .lines()
+                                            .map(|l| l.trim())
+                                            .find(|l| !l.is_empty())
+                                            .unwrap_or("")
+                                            .to_string();
+                                        if !picked.is_empty() {
+                                            text_path = picked.clone();
+                                            file_path = picked;
+                                            eprintln!("[CaptureProKey] Ctrl+Shift+V: using clipboard text path");
+                                        }
+                                    }
+                                    Ok(None) => {
+                                        eprintln!("[CaptureProKey] Ctrl+Shift+V: clipboard has no text");
+                                    }
+                                    Err(e) => {
+                                        eprintln!("[CaptureProKey] Ctrl+Shift+V: get_clipboard_text failed: {}", e);
+                                    }
+                                }
+                            }
+
+                            if file_path.is_empty() {
+                                eprintln!("[CaptureProKey] Ctrl+Shift+V: no file path available");
+                                return;
+                            }
 
                             let _ = tauri::async_runtime::spawn_blocking(move || {
                                 let mut ok = false;
@@ -182,6 +224,7 @@ pub fn run() {
                                 // Prefer pasting the actual image (bitmap) into apps.
                                 for _ in 0..16 {
                                     if win_clipboard::set_clipboard_image_from_file(&file_path).is_ok() {
+                                        eprintln!("[CaptureProKey] Ctrl+Shift+V: clipboard image OK");
                                         ok = true;
                                         break;
                                     }
@@ -192,6 +235,7 @@ pub fn run() {
                                 if !ok {
                                     for _ in 0..16 {
                                         if win_clipboard::set_clipboard_files(&[file_path.clone()]).is_ok() {
+                                            eprintln!("[CaptureProKey] Ctrl+Shift+V: clipboard files OK");
                                             ok = true;
                                             break;
                                         }
@@ -200,14 +244,22 @@ pub fn run() {
                                 }
 
                                 if ok {
-                                    let _ = win_clipboard::paste_ctrl_v();
+                                    if let Err(e) = win_clipboard::paste_ctrl_v() {
+                                        eprintln!("[CaptureProKey] Ctrl+Shift+V: paste_ctrl_v failed: {}", e);
+                                    } else {
+                                        eprintln!("[CaptureProKey] Ctrl+Shift+V: paste_ctrl_v sent");
+                                    }
 
                                     // Restore the path text so normal Ctrl+V still pastes the path afterwards.
                                     // Delay so the target app has time to read the clipboard payload.
                                     std::thread::spawn(move || {
-                                        std::thread::sleep(std::time::Duration::from_millis(500));
-                                        let _ = win_clipboard::set_clipboard_text(&text_path);
+                                        std::thread::sleep(std::time::Duration::from_millis(1800));
+                                        if !text_path.is_empty() {
+                                            let _ = win_clipboard::set_clipboard_text(&text_path);
+                                        }
                                     });
+                                } else {
+                                    eprintln!("[CaptureProKey] Ctrl+Shift+V: failed to set clipboard payload");
                                 }
                             }).await;
                         });
@@ -296,6 +348,10 @@ pub fn run() {
                 Ok(_) => eprintln!("[CaptureProKey] Shortcut Ctrl+Shift+V registered OK"),
                 Err(e) => eprintln!("[CaptureProKey] FAILED to register paste shortcut: {:?}", e),
             }
+            match app.global_shortcut().register(paste_hotkey_alt) {
+                Ok(_) => eprintln!("[CaptureProKey] Shortcut Ctrl+Alt+V registered OK"),
+                Err(e) => eprintln!("[CaptureProKey] FAILED to register Ctrl+Alt+V: {:?}", e),
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -320,6 +376,7 @@ pub fn run() {
             capture::capture_region,
             capture::capture_region_clean,
             settings_cache::set_settings_cache,
+            debug_log,
             set_last_capture_paths,
             set_clipboard_files,
             set_clipboard_text,
