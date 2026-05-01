@@ -1,12 +1,13 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
+import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window";
 import { loadSettings, saveSettings, type AppSettings } from "@/lib/store";
 import { WslBrowserModal } from "./wsl-browser-modal";
 import {
   Settings, Camera, Pin, PinOff, EyeOff, Trash2,
   Copy, ImageIcon, RefreshCw, CheckSquare, Square,
-  List, LayoutGrid, X, ChevronRight, Target
+  List, LayoutGrid, X, ChevronRight, Target, ChevronsRight
 } from "lucide-react";
 
 // ── types ────────────────────────────────────────────────────────────────────
@@ -15,6 +16,11 @@ interface CaptureFile {
   path: string;
   thumbnail?: string;
 }
+
+const COMPACT_WIDTH = 360;
+const COMPACT_HEIGHT = 640;
+const COMPACT_BREAKPOINT = 430;
+const COMPACT_TWO_COL_WIDTH = 520;
 
 // ── Main App ─────────────────────────────────────────────────────────────────
 export function MainApp() {
@@ -30,8 +36,11 @@ export function MainApp() {
   const [preview, setPreview] = useState<CaptureFile | null>(null);
   const [status, setStatus] = useState("Ready.");
   const [reloadNonce, setReloadNonce] = useState(0);
+  const [windowWidth, setWindowWidth] = useState(() => window.innerWidth);
   const settings = loadSettings();
   const galleryMode = settings.galleryMode || "all";
+  const dockColumns = settings.dockColumns || 1;
+  const isCompact = windowWidth <= COMPACT_BREAKPOINT;
   const missingSaveLocation = settings.saveTarget === "windows"
     ? !settings.windowsSavePath
     : (!settings.distro || !settings.savePath);
@@ -105,6 +114,13 @@ export function MainApp() {
 
   useEffect(() => { loadFiles(); }, [loadFiles]);
   useEffect(() => { syncSettingsCache(); }, [syncSettingsCache]);
+  useEffect(() => {
+    const appWindow = getCurrentWindow();
+    appWindow.setMinSize(new LogicalSize(COMPACT_WIDTH, COMPACT_HEIGHT)).catch(() => {});
+    const onResize = () => setWindowWidth(window.innerWidth);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
 
   // Toasts from backend (e.g. missing save folder when user triggers Capture via hotkey/menu).
   useEffect(() => {
@@ -197,6 +213,18 @@ export function MainApp() {
     await invoke("hide_main_window").catch(console.error);
   };
 
+  const handleDockRight = async () => {
+    const dockWidth = dockColumns === 2 ? COMPACT_TWO_COL_WIDTH : COMPACT_WIDTH;
+    const ok = await invoke("dock_main_right", { dockColumns }).then(() => true).catch(err => {
+      console.error(err);
+      setStatus("Dock right failed: " + err);
+      return false;
+    });
+    if (!ok) return;
+    setPinned(true);
+    setWindowWidth(dockWidth);
+  };
+
   const handleDelete = async () => {
     const toDelete = Array.from(selected);
     if (!toDelete.length) return;
@@ -279,23 +307,25 @@ export function MainApp() {
   return (
     <div style={S.root}>
       {/* ── Top Toolbar ─────────────────────────────────────────────────── */}
-      <div style={S.toolbar}>
+      <div style={{ ...S.toolbar, gap: isCompact ? 4 : 6, padding: isCompact ? "8px 10px" : "8px 12px" }}>
         <div style={S.logo}>
           <Camera style={{ width: 16, height: 16, color: "white" }} />
         </div>
-        <span style={S.logoText}>Capture Pro <span style={{ color: "#60a5fa" }}>v2</span></span>
+        {!isCompact && <span style={S.logoText}>Capture Pro <span style={{ color: "#60a5fa" }}>v2</span></span>}
 
-        <div style={S.toolbarSep} />
+        {!isCompact && <div style={S.toolbarSep} />}
 
-        <Btn icon={<Settings size={14} />} label="Settings" onClick={() => setShowSettings(true)} />
-        <Btn icon={<Camera size={14} />} label="Capture" onClick={handleCapture} primary />
+        <Btn icon={<Settings size={14} />} label="Settings" onClick={() => setShowSettings(true)} compact={isCompact} />
+        <Btn icon={<Camera size={14} />} label="Capture" onClick={handleCapture} primary compact={isCompact} />
         <Btn
           icon={pinned ? <Pin size={14} /> : <PinOff size={14} />}
           label={pinned ? "Pinned" : "Pin"}
           onClick={handlePin}
           active={pinned}
+          compact={isCompact}
         />
-        <Btn icon={<EyeOff size={14} />} label="Hide" onClick={handleHide} />
+        <Btn icon={<ChevronsRight size={14} />} label="Dock Right" onClick={handleDockRight} compact={isCompact} />
+        <Btn icon={<EyeOff size={14} />} label="Hide" onClick={handleHide} compact={isCompact} />
 
         <div style={{ flex: 1 }} />
 
@@ -303,8 +333,8 @@ export function MainApp() {
       </div>
 
       {/* ── Gallery Toolbar ──────────────────────────────────────────────── */}
-      <div style={S.galleryBar}>
-        <span style={S.galleryLabel}>Captures</span>
+      <div style={{ ...S.galleryBar, gap: isCompact ? 4 : 6, padding: isCompact ? "6px 10px" : "6px 12px" }}>
+        {!isCompact && <span style={S.galleryLabel}>Captures</span>}
         {galleryMode !== "focus" && (
           <button
             style={S.iconBtn}
@@ -315,12 +345,12 @@ export function MainApp() {
           </button>
         )}
 
-        <div style={S.toolbarSep} />
+        {!isCompact && <div style={S.toolbarSep} />}
 
-        <Btn icon={<Copy size={13} />} label="Paths" onClick={handleCopyPaths} small disabled={files.length === 0} />
-        <Btn icon={<ImageIcon size={13} />} label="Files (Ctrl+C)" onClick={handleCopyFiles} small disabled={files.length === 0} />
+        <Btn icon={<Copy size={13} />} label="Paths" onClick={handleCopyPaths} small disabled={files.length === 0} compact={isCompact} />
+        <Btn icon={<ImageIcon size={13} />} label="Files (Ctrl+C)" onClick={handleCopyFiles} small disabled={files.length === 0} compact={isCompact} />
 
-        <div style={S.toolbarSep} />
+        {!isCompact && <div style={S.toolbarSep} />}
         <button
           style={{ ...S.iconBtn, ...(galleryMode === "focus" ? { background: "#eff6ff", borderColor: "#bfdbfe", color: "#2563eb" } : {}) }}
           onClick={() => {
@@ -339,10 +369,29 @@ export function MainApp() {
           <Target size={14} />
         </button>
 
+        {isCompact && galleryMode !== "focus" && (
+          <>
+            <button
+              style={{ ...S.iconBtn, ...(dockColumns === 1 ? { background: "#eff6ff", borderColor: "#bfdbfe", color: "#2563eb" } : {}) }}
+              onClick={() => saveSettings({ dockColumns: 1 })}
+              title="Dock 1"
+            >
+              <List size={14} />
+            </button>
+            <button
+              style={{ ...S.iconBtn, ...(dockColumns === 2 ? { background: "#eff6ff", borderColor: "#bfdbfe", color: "#2563eb" } : {}) }}
+              onClick={() => saveSettings({ dockColumns: 2 })}
+              title="Dock 2"
+            >
+              <LayoutGrid size={14} />
+            </button>
+          </>
+        )}
+
         <div style={{ flex: 1 }} />
 
         {someSelected && galleryMode !== "focus" && (
-          <Btn icon={<Trash2 size={13} />} label={`Delete (${selected.size})`} onClick={handleDelete} small danger />
+          <Btn icon={<Trash2 size={13} />} label={`Delete (${selected.size})`} onClick={handleDelete} small danger compact={isCompact} />
         )}
         {galleryMode !== "focus" && (
           <button style={S.iconBtn} onClick={() => setViewMode(v => v === "thumbnail" ? "list" : "thumbnail")} title="Toggle view">
@@ -371,6 +420,7 @@ export function MainApp() {
           <FocusView
             file={files[0]}
             settings={settings}
+            compact={isCompact}
             onLoadThumb={loadThumb}
             onPreview={() => setPreview(files[0])}
             onDelete={async () => {
@@ -395,6 +445,8 @@ export function MainApp() {
         ) : viewMode === "thumbnail" ? (
           <ThumbnailGrid
             files={files}
+            compact={isCompact}
+            dockColumns={dockColumns}
             selected={selected}
             onItemClick={handleItemClick}
             onLoadThumb={loadThumb}
@@ -417,9 +469,9 @@ export function MainApp() {
       </div>
 
       {/* ── Status Bar ──────────────────────────────────────────────────── */}
-      <div style={S.statusBar}>
-        <span style={{ color: "#64748b", fontSize: 11 }}>{status}</span>
-        {someSelected && (
+      <div style={{ ...S.statusBar, minHeight: isCompact ? 22 : 28, padding: isCompact ? "4px 10px" : "5px 14px" }}>
+        {!isCompact && <span style={{ color: "#64748b", fontSize: 11 }}>{status}</span>}
+        {!isCompact && someSelected && (
           <span style={{ marginLeft: "auto", color: "#3b82f6", fontSize: 11, fontWeight: 600 }}>
             {selected.size} selected
           </span>
@@ -501,8 +553,10 @@ export function MainApp() {
 
 // ── Sub-components ───────────────────────────────────────────────────────────
 
-function ThumbnailGrid({ files, selected, onItemClick, onLoadThumb, onBandSelect }: {
+function ThumbnailGrid({ files, compact, dockColumns, selected, onItemClick, onLoadThumb, onBandSelect }: {
   files: CaptureFile[];
+  compact: boolean;
+  dockColumns: 1 | 2;
   selected: Set<string>;
   onItemClick: (f: CaptureFile, e: React.MouseEvent) => void;
   onLoadThumb: (f: CaptureFile) => void;
@@ -580,7 +634,7 @@ function ThumbnailGrid({ files, selected, onItemClick, onLoadThumb, onBandSelect
     <div
       ref={containerRef}
       onMouseDown={onMouseDown}
-      style={{ position: "relative", display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))", gap: 10, padding: 14 }}
+      style={{ position: "relative", display: "grid", gridTemplateColumns: compact ? `repeat(${dockColumns}, minmax(0, 1fr))` : "repeat(auto-fill, minmax(150px, 1fr))", gap: compact ? 8 : 10, padding: compact ? 10 : 14, minHeight: "100%", alignContent: "start", boxSizing: "border-box" }}
     >
       {band && (
         <div
@@ -637,9 +691,10 @@ function ThumbnailGrid({ files, selected, onItemClick, onLoadThumb, onBandSelect
   );
 }
 
-function FocusView({ file, settings, onLoadThumb, onPreview, onDelete }: {
+function FocusView({ file, settings, compact, onLoadThumb, onPreview, onDelete }: {
   file: CaptureFile;
   settings: AppSettings;
+  compact: boolean;
   onLoadThumb: (f: CaptureFile) => void;
   onPreview: () => void;
   onDelete: () => void;
@@ -653,26 +708,26 @@ function FocusView({ file, settings, onLoadThumb, onPreview, onDelete }: {
     : `${settings.distro}:${file.path}`;
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 12, maxWidth: 980, width: "100%", margin: "0 auto", padding: "14px 18px 18px", boxSizing: "border-box" }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 12, maxWidth: 980, width: "100%", margin: "0 auto", padding: compact ? "10px 10px 12px" : "14px 18px 18px", boxSizing: "border-box" }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16 }}>
         <div style={{ minWidth: 0 }}>
           <div style={{ fontSize: 13, fontWeight: 700, color: "#0f172a", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{file.name}</div>
-          <div style={{ fontFamily: "monospace", fontSize: 11, color: "#64748b", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{subtitle}</div>
+          {!compact && <div style={{ fontFamily: "monospace", fontSize: 11, color: "#64748b", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{subtitle}</div>}
         </div>
         <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
           <button
             onClick={onPreview}
-            style={{ padding: "8px 12px", borderRadius: 10, border: "1px solid #e2e8f0", background: "white", cursor: "pointer", fontSize: 12, fontWeight: 600, color: "#334155" }}
+            style={compact ? { width: 34, height: 34, borderRadius: 10, border: "1px solid #e2e8f0", background: "white", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: "#334155" } : { padding: "8px 12px", borderRadius: 10, border: "1px solid #e2e8f0", background: "white", cursor: "pointer", fontSize: 12, fontWeight: 600, color: "#334155" }}
             title="Open preview"
           >
-            Preview
+            {compact ? <ImageIcon size={15} /> : "Preview"}
           </button>
           <button
             onClick={onDelete}
-            style={{ padding: "8px 12px", borderRadius: 10, border: "1px solid #fecaca", background: "#fef2f2", cursor: "pointer", fontSize: 12, fontWeight: 700, color: "#b91c1c" }}
+            style={compact ? { width: 34, height: 34, borderRadius: 10, border: "1px solid #fecaca", background: "#fef2f2", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: "#b91c1c" } : { padding: "8px 12px", borderRadius: 10, border: "1px solid #fecaca", background: "#fef2f2", cursor: "pointer", fontSize: 12, fontWeight: 700, color: "#b91c1c" }}
             title="Delete latest capture"
           >
-            Delete
+            {compact ? <Trash2 size={15} /> : "Delete"}
           </button>
         </div>
       </div>
@@ -802,7 +857,7 @@ function ListView({ files, selected, onItemClick, onBandSelect }: {
     <div
       ref={containerRef}
       onMouseDown={onMouseDown}
-      style={{ padding: "8px 14px", display: "flex", flexDirection: "column", gap: 4, position: "relative", userSelect: "none" as any, WebkitUserSelect: "none" as any }}
+      style={{ padding: "8px 14px", display: "flex", flexDirection: "column", gap: 4, position: "relative", userSelect: "none" as any, WebkitUserSelect: "none" as any, minHeight: "100%", boxSizing: "border-box" }}
     >
       {band && (
         <div
@@ -846,17 +901,18 @@ function ListView({ files, selected, onItemClick, onBandSelect }: {
   );
 }
 
-function Btn({ icon, label, onClick, primary, active, small, danger, disabled }: {
+function Btn({ icon, label, onClick, primary, active, small, danger, disabled, compact }: {
   icon: React.ReactNode; label: string; onClick: () => void;
-  primary?: boolean; active?: boolean; small?: boolean; danger?: boolean; disabled?: boolean;
+  primary?: boolean; active?: boolean; small?: boolean; danger?: boolean; disabled?: boolean; compact?: boolean;
 }) {
   return (
     <button
       onClick={onClick}
       disabled={disabled}
+      title={label}
       style={{
         display: "flex", alignItems: "center", gap: small ? 5 : 6,
-        padding: small ? "5px 10px" : "6px 12px",
+        padding: compact ? 0 : (small ? "5px 10px" : "6px 12px"),
         borderRadius: 8,
         border: danger ? "1px solid #fecaca" : active ? "1px solid #93c5fd" : "1px solid #e2e8f0",
         background: primary ? "#2563eb" : danger ? "#fef2f2" : active ? "#eff6ff" : "white",
@@ -866,10 +922,14 @@ function Btn({ icon, label, onClick, primary, active, small, danger, disabled }:
         boxShadow: primary ? "0 2px 8px rgba(37,99,235,0.25)" : "none",
         transition: "all 0.12s ease",
         whiteSpace: "nowrap",
+        width: compact ? (small ? 32 : 36) : undefined,
+        height: compact ? (small ? 32 : 36) : undefined,
+        justifyContent: "center",
+        flexShrink: 0,
       }}
     >
       {icon}
-      {label}
+      {!compact && label}
     </button>
   );
 }

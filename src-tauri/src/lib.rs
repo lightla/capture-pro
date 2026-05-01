@@ -170,6 +170,44 @@ fn hide_main_window(app: tauri::AppHandle) {
     }
 }
 
+#[tauri::command]
+fn dock_main_right(app: tauri::AppHandle, dock_columns: u8) -> Result<(), String> {
+    let main = app
+        .get_webview_window("main")
+        .ok_or_else(|| "Main window not found".to_string())?;
+
+    if main.is_maximized().unwrap_or(false) {
+        let _ = main.unmaximize();
+    }
+
+    let monitor = main
+        .current_monitor()
+        .map_err(|e| e.to_string())?
+        .or_else(|| main.primary_monitor().ok().flatten())
+        .ok_or_else(|| "No monitor found".to_string())?;
+
+    let scale = monitor.scale_factor();
+    let work = monitor.work_area();
+    let dock_width = if dock_columns == 2 { 520.0 } else { 360.0 };
+    let dock_height = ((work.size.height as f64 - 24.0) / scale).max(640.0);
+    let x = ((work.position.x as f64 + work.size.width as f64 - 12.0) / scale) - dock_width;
+    let y = (work.position.y as f64 + 12.0) / scale;
+
+    main
+        .set_min_size(Some(tauri::LogicalSize::new(360.0, 640.0)))
+        .map_err(|e| e.to_string())?;
+    main
+        .set_size(tauri::LogicalSize::new(dock_width, dock_height))
+        .map_err(|e| e.to_string())?;
+    main
+        .set_position(tauri::LogicalPosition::new(x, y))
+        .map_err(|e| e.to_string())?;
+    let _ = main.set_always_on_top(true);
+    let _ = main.show();
+    let _ = main.set_focus();
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let hotkey = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyZ);
@@ -501,6 +539,7 @@ pub fn run() {
             show_overlay,
             set_always_on_top,
             hide_main_window,
+            dock_main_right,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
