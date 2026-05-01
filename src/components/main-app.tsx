@@ -937,6 +937,8 @@ function Btn({ icon, label, onClick, primary, active, small, danger, disabled, c
   icon: React.ReactNode; label: string; onClick: () => void;
   primary?: boolean; active?: boolean; small?: boolean; danger?: boolean; disabled?: boolean; compact?: boolean;
 }) {
+  const primaryBg = "linear-gradient(135deg, #3b82f6, #2563eb)";
+  const primaryFg = "#93c5fd";
   return (
     <button
       onClick={onClick}
@@ -946,12 +948,12 @@ function Btn({ icon, label, onClick, primary, active, small, danger, disabled, c
         display: "flex", alignItems: "center", gap: small ? 5 : 6,
         padding: compact ? 0 : (small ? "5px 10px" : "6px 12px"),
         borderRadius: label.startsWith("Dock ") && !compact ? "8px 0 0 8px" : 8,
-        border: danger ? "1px solid #fecaca" : active ? "1px solid #93c5fd" : "1px solid #e2e8f0",
-        background: primary ? "#93c5fd" : danger ? "#fef2f2" : active ? "#eff6ff" : "white",
-        color: primary ? "#1e3a8a" : danger ? "#dc2626" : active ? "#2563eb" : "#374151",
+        border: primary ? "1px solid #2563eb" : danger ? "1px solid #fecaca" : active ? "1px solid #93c5fd" : "1px solid #e2e8f0",
+        background: primary ? primaryBg : danger ? "#fef2f2" : active ? "#eff6ff" : "white",
+        color: primary ? primaryFg : danger ? "#dc2626" : active ? "#2563eb" : "#374151",
         fontSize: small ? 12 : 13, fontWeight: 500, cursor: disabled ? "not-allowed" : "pointer",
         opacity: disabled ? 0.5 : 1,
-        boxShadow: primary ? "0 2px 8px rgba(37,99,235,0.25)" : "none",
+        boxShadow: primary ? "0 2px 10px rgba(37,99,235,0.35)" : "none",
         transition: "all 0.12s ease",
         whiteSpace: "nowrap",
         width: compact ? (small ? 32 : 36) : undefined,

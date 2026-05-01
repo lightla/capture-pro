@@ -238,7 +238,9 @@ fn toggle_dock_main_right(
     let work = monitor.work_area();
     let dock_width = if dock_columns.unwrap_or(2) == 1 { 330 } else { 520 };
     let dock_height = work.size.height;
-    let x = work.position.x + work.size.width as i32 - dock_width;
+    // Inset slightly from the work-area edge to avoid the window shadow/frame being clipped off-screen.
+    let dock_right_inset: i32 = 12;
+    let x = (work.position.x + work.size.width as i32 - dock_width - dock_right_inset).max(work.position.x);
     let y = work.position.y;
 
     main
