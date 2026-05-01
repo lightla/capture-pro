@@ -21,6 +21,14 @@ button:focus-visible {
   outline-offset: 2px;
 }
 
+/* Icon-only buttons manage their own focus/active visuals. */
+button[data-no-focus-ring="true"]:focus,
+button[data-no-focus-ring="true"]:focus-visible,
+button[data-no-focus-ring="true"]:active {
+  outline: none !important;
+  box-shadow: none !important;
+}
+
 select:focus {
   outline: 2px solid #3b82f6;
   outline-offset: 1px;

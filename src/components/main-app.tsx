@@ -361,8 +361,21 @@ export function MainApp() {
           <div style={{ position: "relative", display: "flex", flexShrink: 0 }}>
             <Btn icon={<ChevronsRight size={14} />} label={`Dock ${dockColumns}`} onClick={() => handleDockRight(dockColumns)} compact={isCompact} />
             <button
-              style={{ ...S.iconBtn, width: isCompact ? 28 : 30, height: isCompact ? 36 : 32, marginLeft: -1, borderTopLeftRadius: 0, borderBottomLeftRadius: 0, ...(showDockMenu ? { background: "#eff6ff", borderColor: "#93c5fd", color: "#2563eb" } : {}) }}
+              style={{
+                ...S.iconBtn,
+                width: isCompact ? 36 : 32,
+                height: isCompact ? 36 : 32,
+                marginLeft: -1,
+                borderTopLeftRadius: 0,
+                borderBottomLeftRadius: 0,
+                ...(showDockMenu
+                  ? { background: "#eff6ff", borderColor: "#93c5fd", color: "#2563eb", outline: "none", boxShadow: "none" }
+                  : { background: "#f8fafc", borderColor: "#cbd5e1", color: "#64748b", outline: "none", boxShadow: "none" }),
+              }}
               onClick={() => setShowDockMenu(v => !v)}
+              tabIndex={-1}
+              data-no-focus-ring="true"
+              onPointerDown={(e) => e.preventDefault()}
               title="Choose dock layout"
             >
               <ChevronDown size={13} />
@@ -390,13 +403,11 @@ export function MainApp() {
       <div style={{ ...S.galleryBar, gap: isCompact ? 4 : 6, padding: isCompact ? "6px 10px" : "6px 12px" }}>
         {!isCompact && <span style={S.galleryLabel}>Captures</span>}
         {galleryMode !== "focus" && (
-          <button
-            style={S.iconBtn}
+          <IconBtn
+            icon={allSelected ? <CheckSquare size={14} /> : <Square size={14} />}
             onClick={handleSelectAll}
             title={allSelected ? "Deselect all" : "Select all"}
-          >
-            {allSelected ? <CheckSquare size={14} /> : <Square size={14} />}
-          </button>
+          />
         )}
 
         {!isCompact && <div style={S.toolbarSep} />}
@@ -405,8 +416,12 @@ export function MainApp() {
         <Btn icon={<ImageIcon size={13} />} label="Files (Ctrl+C)" onClick={handleCopyFiles} small disabled={files.length === 0} compact={isCompact} />
 
         {!isCompact && <div style={S.toolbarSep} />}
-        <button
-          style={{ ...S.iconBtn, ...(galleryMode === "focus" ? { background: "#eff6ff", borderColor: "#bfdbfe", color: "#2563eb" } : {}) }}
+        <IconBtn
+          icon={<Target size={14} />}
+          title={galleryMode === "focus" ? "Exit Focus mode" : "Focus mode (latest only)"}
+          activeStyle={galleryMode === "focus"
+            ? { background: "#eff6ff", borderColor: "#93c5fd", color: "#2563eb", outline: "none", boxShadow: "none" }
+            : { background: "#f8fafc", borderColor: "#cbd5e1", color: "#64748b", outline: "none", boxShadow: "none" }}
           onClick={() => {
             const next = galleryMode === "focus" ? "all" : "focus";
             saveSettings({ galleryMode: next });
@@ -418,10 +433,7 @@ export function MainApp() {
             setStatus(next === "focus" ? "Focus mode enabled (latest only)." : "Focus mode disabled.");
             setReloadNonce(n => n + 1);
           }}
-          title={galleryMode === "focus" ? "Exit Focus mode" : "Focus mode (latest only)"}
-        >
-          <Target size={14} />
-        </button>
+        />
 
         <div style={{ flex: 1 }} />
 
@@ -429,13 +441,17 @@ export function MainApp() {
           <Btn icon={<Trash2 size={13} />} label={`Delete (${selected.size})`} onClick={handleDelete} small danger compact={isCompact} />
         )}
         {galleryMode !== "focus" && (
-          <button style={S.iconBtn} onClick={() => setViewMode(v => v === "thumbnail" ? "list" : "thumbnail")} title="Toggle view">
-            {viewMode === "thumbnail" ? <List size={14} /> : <LayoutGrid size={14} />}
-          </button>
+          <IconBtn
+            icon={viewMode === "thumbnail" ? <List size={14} /> : <LayoutGrid size={14} />}
+            onClick={() => setViewMode(v => v === "thumbnail" ? "list" : "thumbnail")}
+            title="Toggle view"
+          />
         )}
-        <button style={S.iconBtn} onClick={loadFiles} title="Refresh">
-          <RefreshCw size={14} style={{ animation: loading ? "spin 1s linear infinite" : undefined }} />
-        </button>
+        <IconBtn
+          icon={<RefreshCw size={14} style={{ animation: loading ? "spin 1s linear infinite" : undefined }} />}
+          onClick={loadFiles}
+          title="Refresh"
+        />
       </div>
 
       {/* ── Gallery Content ──────────────────────────────────────────────── */}
@@ -944,6 +960,7 @@ function Btn({ icon, label, onClick, primary, active, small, danger, disabled, c
 }) {
   const primaryBg = "linear-gradient(135deg, #3b82f6, #2563eb)";
   const primaryFg = "#bfdbfe";
+  const h = compact ? 36 : 32;
   return (
     <button
       onClick={onClick}
@@ -951,20 +968,23 @@ function Btn({ icon, label, onClick, primary, active, small, danger, disabled, c
       title={label}
       style={{
         display: "flex", alignItems: "center", gap: small ? 5 : 6,
-        padding: compact ? 0 : (small ? "5px 10px" : "6px 12px"),
+        padding: compact ? 0 : (small ? "0 10px" : "0 12px"),
         borderRadius: label.startsWith("Dock ") && !compact ? "8px 0 0 8px" : 8,
-        border: primary ? "1px solid #2563eb" : danger ? "1px solid #fecaca" : active ? "1px solid #93c5fd" : "1px solid #e2e8f0",
-        background: primary ? primaryBg : danger ? "#fef2f2" : active ? "#eff6ff" : "white",
+        border: primary ? "1px solid #2563eb" : danger ? "1px solid #fecaca" : active ? "1px solid #93c5fd" : "1px solid #cbd5e1",
+        background: primary ? primaryBg : danger ? "#fef2f2" : active ? "#eff6ff" : "#f8fafc",
         color: primary ? primaryFg : danger ? "#dc2626" : active ? "#2563eb" : "#374151",
         fontSize: small ? 12 : 13, fontWeight: 500, cursor: disabled ? "not-allowed" : "pointer",
         opacity: disabled ? 0.5 : 1,
         boxShadow: primary ? "0 2px 10px rgba(37,99,235,0.35)" : "none",
         transition: "all 0.12s ease",
         whiteSpace: "nowrap",
+        height: h,
         width: compact ? (small ? 32 : 36) : undefined,
-        height: compact ? (small ? 32 : 36) : undefined,
+        // keep height consistent even for small buttons
+        minHeight: h,
         justifyContent: "center",
         flexShrink: 0,
+        outline: "none",
       }}
     >
       {icon}
@@ -974,6 +994,35 @@ function Btn({ icon, label, onClick, primary, active, small, danger, disabled, c
 }
 
 // ── Styles ───────────────────────────────────────────────────────────────────
+function IconBtn({ icon, title, onClick, activeStyle }: {
+  icon: React.ReactNode;
+  title: string;
+  onClick: () => void;
+  activeStyle?: React.CSSProperties;
+}) {
+  return (
+    <button
+      style={{ ...S.iconBtn, ...(activeStyle || {}) }}
+      onClick={(e) => {
+        // Deterministically avoid the persistent focus outline some WebView2 builds draw on click.
+        queueMicrotask(() => (e.currentTarget as HTMLButtonElement).blur());
+        onClick();
+      }}
+      title={title}
+      tabIndex={-1}
+      data-no-focus-ring="true"
+      // Prevent mouse focus ring / border changes after click.
+      onPointerDown={(e) => {
+        e.preventDefault();
+        (e.currentTarget as HTMLButtonElement).blur();
+      }}
+      onPointerUp={(e) => (e.currentTarget as HTMLButtonElement).blur()}
+    >
+      {icon}
+    </button>
+  );
+}
+
 const S: Record<string, React.CSSProperties> = {
   root: { display: "flex", flexDirection: "column", height: "100vh", background: "#f8fafc", fontFamily: "system-ui, sans-serif", overflow: "hidden" },
   toolbar: { display: "flex", alignItems: "center", gap: 6, padding: "8px 12px", background: "white", borderBottom: "1px solid #e8edf3", boxShadow: "0 1px 4px rgba(0,0,0,0.05)" },
@@ -983,7 +1032,7 @@ const S: Record<string, React.CSSProperties> = {
   hotkey: { display: "none", fontSize: 11, color: "#94a3b8", background: "#f1f5f9", borderRadius: 6, padding: "4px 8px", border: "1px solid #e2e8f0" },
   galleryBar: { display: "flex", alignItems: "center", gap: 6, padding: "6px 12px", background: "#fafbfc", borderBottom: "1px solid #e8edf3" },
   galleryLabel: { fontSize: 12, fontWeight: 600, color: "#374151", marginRight: 2 },
-  iconBtn: { width: 28, height: 28, borderRadius: 6, border: "1px solid #e2e8f0", background: "white", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: "#64748b", flexShrink: 0, transition: "all 0.12s ease" },
+  iconBtn: { width: 32, height: 32, borderRadius: 8, border: "1px solid #cbd5e1", background: "#f8fafc", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: "#64748b", flexShrink: 0, transition: "all 0.12s ease", outline: "none", boxShadow: "none" },
   galleryArea: { flex: 1, overflowY: "auto" },
   emptyState: { display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100%", padding: 40 },
   statusBar: { display: "flex", alignItems: "center", padding: "5px 14px", background: "white", borderTop: "1px solid #e8edf3", minHeight: 28 },
