@@ -7,7 +7,7 @@ import { WslBrowserModal } from "./wsl-browser-modal";
 import {
   Settings, Camera, Pin, PinOff, EyeOff, Trash2,
   Copy, ImageIcon, RefreshCw, CheckSquare, Square,
-  List, LayoutGrid, X, ChevronRight, Target, ChevronsRight
+  List, LayoutGrid, X, ChevronRight, Target, ChevronsRight, ChevronDown, PanelTop
 } from "lucide-react";
 
 // ── types ────────────────────────────────────────────────────────────────────
@@ -46,11 +46,13 @@ export function MainApp() {
   const [reloadNonce, setReloadNonce] = useState(0);
   const [windowWidth, setWindowWidth] = useState(() => window.innerWidth);
   const [dockMode, setDockMode] = useState(false);
+  const [dockColumns, setDockColumns] = useState<1 | 2>(2);
+  const [showDockMenu, setShowDockMenu] = useState(false);
   const settings = loadSettings();
   const galleryMode = settings.galleryMode || "all";
   const isCompact = dockMode || windowWidth <= COMPACT_BREAKPOINT;
   const useDockGrid = dockMode || windowWidth <= DOCK_GRID_BREAKPOINT;
-  const dockGridColumns = windowWidth <= DOCK_ONE_COL_BREAKPOINT ? 1 : 2;
+  const dockGridColumns = dockMode ? dockColumns : (windowWidth <= DOCK_ONE_COL_BREAKPOINT ? 1 : 2);
   const missingSaveLocation = settings.saveTarget === "windows"
     ? !settings.windowsSavePath
     : (!settings.distro || !settings.savePath);
@@ -223,9 +225,10 @@ export function MainApp() {
     await invoke("hide_main_window").catch(console.error);
   };
 
-  const handleDockRight = async () => {
+  const handleDockRight = async (columns: 1 | 2 = dockColumns) => {
+    setDockColumns(columns);
     setDockMode(true);
-    const result = await invoke<DockResult>("toggle_dock_main_right").catch(err => {
+    const result = await invoke<DockResult>("toggle_dock_main_right", { dockColumns: columns }).catch(err => {
       console.error(err);
       setStatus("Dock right failed: " + err);
       return null;
@@ -236,7 +239,8 @@ export function MainApp() {
     }
     setPinned(result.alwaysOnTop);
     setDockMode(result.docked);
-    if (result.docked) setWindowWidth(COMPACT_TWO_COL_WIDTH);
+    setShowDockMenu(false);
+    if (result.docked) setWindowWidth(columns === 1 ? COMPACT_WIDTH : COMPACT_TWO_COL_WIDTH);
   };
 
   const handleDelete = async () => {
@@ -338,7 +342,30 @@ export function MainApp() {
           active={pinned}
           compact={isCompact}
         />
-        <Btn icon={<ChevronsRight size={14} />} label={dockMode ? "Undock" : "Dock Right"} onClick={handleDockRight} compact={isCompact} />
+        {dockMode ? (
+          <Btn icon={<ChevronsRight size={14} />} label="Undock" onClick={() => handleDockRight(dockColumns)} compact={isCompact} />
+        ) : (
+          <div style={{ position: "relative", display: "flex", flexShrink: 0 }}>
+            <Btn icon={<ChevronsRight size={14} />} label={`Dock ${dockColumns}`} onClick={() => handleDockRight(dockColumns)} compact={isCompact} />
+            <button
+              style={{ ...S.iconBtn, width: isCompact ? 28 : 30, height: isCompact ? 36 : 32, marginLeft: -1, borderTopLeftRadius: 0, borderBottomLeftRadius: 0 }}
+              onClick={() => setShowDockMenu(v => !v)}
+              title="Choose dock layout"
+            >
+              <ChevronDown size={13} />
+            </button>
+            {showDockMenu && (
+              <div style={{ position: "absolute", top: "calc(100% + 6px)", right: 0, zIndex: 50, background: "white", border: "1px solid #e2e8f0", borderRadius: 8, boxShadow: "0 10px 30px rgba(15,23,42,0.14)", padding: 4, minWidth: 118 }}>
+                <button style={{ ...S.menuItem, ...(dockColumns === 1 ? S.menuItemActive : {}) }} onClick={() => { setDockColumns(1); setShowDockMenu(false); }}>
+                  <PanelTop size={14} /> Dock 1
+                </button>
+                <button style={{ ...S.menuItem, ...(dockColumns === 2 ? S.menuItemActive : {}) }} onClick={() => { setDockColumns(2); setShowDockMenu(false); }}>
+                  <LayoutGrid size={14} /> Dock 2
+                </button>
+              </div>
+            )}
+          </div>
+        )}
         <Btn icon={<EyeOff size={14} />} label="Hide" onClick={handleHide} compact={isCompact} />
 
         <div style={{ flex: 1 }} />
@@ -629,7 +656,7 @@ function ThumbnailGrid({ files, compact, dockGridColumns, selected, onItemClick,
     <div
       ref={containerRef}
       onMouseDown={onMouseDown}
-      style={{ position: "relative", display: "grid", gridTemplateColumns: compact ? (dockGridColumns === 1 ? `${DOCK_CARD_WIDTH}px` : "repeat(2, minmax(0, 1fr))") : "repeat(auto-fill, minmax(150px, 1fr))", gap: compact ? 8 : 10, padding: compact ? 10 : 14, width: "100%", minHeight: "100%", alignContent: "start", justifyContent: "start", boxSizing: "border-box" }}
+      style={{ position: "relative", display: "grid", gridTemplateColumns: compact ? (dockGridColumns === 1 ? `${DOCK_CARD_WIDTH}px` : "repeat(2, minmax(0, 1fr))") : "repeat(auto-fill, minmax(150px, 1fr))", gap: compact ? 8 : 10, padding: compact ? 10 : 14, width: "100%", minHeight: "100%", alignContent: "start", justifyContent: compact && dockGridColumns === 1 ? "center" : "start", boxSizing: "border-box" }}
     >
       {band && (
         <div
@@ -908,7 +935,7 @@ function Btn({ icon, label, onClick, primary, active, small, danger, disabled, c
       style={{
         display: "flex", alignItems: "center", gap: small ? 5 : 6,
         padding: compact ? 0 : (small ? "5px 10px" : "6px 12px"),
-        borderRadius: 8,
+        borderRadius: label.startsWith("Dock ") && !compact ? "8px 0 0 8px" : 8,
         border: danger ? "1px solid #fecaca" : active ? "1px solid #93c5fd" : "1px solid #e2e8f0",
         background: primary ? "#2563eb" : danger ? "#fef2f2" : active ? "#eff6ff" : "white",
         color: primary ? "white" : danger ? "#dc2626" : active ? "#2563eb" : "#374151",
@@ -946,4 +973,6 @@ const S: Record<string, React.CSSProperties> = {
   modalBg: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 9999 },
   previewBox: { background: "white", borderRadius: 16, padding: 20, maxWidth: "80vw", maxHeight: "90vh", display: "flex", flexDirection: "column", boxShadow: "0 20px 60px rgba(0,0,0,0.3)", overflow: "auto" },
   closeBtn: { width: 28, height: 28, borderRadius: 6, border: "1px solid #e2e8f0", background: "white", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: "#64748b" },
+  menuItem: { width: "100%", display: "flex", alignItems: "center", gap: 8, border: "none", background: "white", color: "#334155", borderRadius: 6, padding: "7px 8px", cursor: "pointer", fontSize: 12, fontWeight: 600, whiteSpace: "nowrap" },
+  menuItemActive: { background: "#eff6ff", color: "#2563eb" },
 };

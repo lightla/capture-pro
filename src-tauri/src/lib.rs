@@ -192,6 +192,7 @@ fn hide_main_window(app: tauri::AppHandle) {
 fn toggle_dock_main_right(
     app: tauri::AppHandle,
     state: tauri::State<'_, DockState>,
+    dock_columns: Option<u8>,
 ) -> Result<DockResult, String> {
     let main = app
         .get_webview_window("main")
@@ -235,7 +236,7 @@ fn toggle_dock_main_right(
         .ok_or_else(|| "No monitor found".to_string())?;
 
     let work = monitor.work_area();
-    let dock_width = 520;
+    let dock_width = if dock_columns.unwrap_or(2) == 1 { 360 } else { 520 };
     let dock_height = work.size.height.max(640);
     let x = work.position.x + work.size.width as i32 - dock_width;
     let y = work.position.y;
@@ -248,6 +249,9 @@ fn toggle_dock_main_right(
         .map_err(|e| e.to_string())?;
     main
         .set_position(tauri::PhysicalPosition::new(x, y))
+        .map_err(|e| e.to_string())?;
+    main
+        .set_size(tauri::PhysicalSize::new(dock_width as u32, dock_height))
         .map_err(|e| e.to_string())?;
     main.set_resizable(false).map_err(|e| e.to_string())?;
     *state.0.lock().map_err(|_| "Dock state lock failed".to_string())? = Some(snapshot);
