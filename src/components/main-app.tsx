@@ -17,10 +17,18 @@ interface CaptureFile {
   thumbnail?: string;
 }
 
-const COMPACT_WIDTH = 360;
+interface DockResult {
+  docked: boolean;
+  alwaysOnTop: boolean;
+}
+
+const COMPACT_WIDTH = 210;
 const COMPACT_HEIGHT = 640;
-const COMPACT_BREAKPOINT = 430;
+const COMPACT_BREAKPOINT = 700;
 const COMPACT_TWO_COL_WIDTH = 520;
+const DOCK_GRID_BREAKPOINT = 560;
+const DOCK_ONE_COL_BREAKPOINT = 430;
+const DOCK_CARD_WIDTH = 180;
 
 // ── Main App ─────────────────────────────────────────────────────────────────
 export function MainApp() {
@@ -37,10 +45,12 @@ export function MainApp() {
   const [status, setStatus] = useState("Ready.");
   const [reloadNonce, setReloadNonce] = useState(0);
   const [windowWidth, setWindowWidth] = useState(() => window.innerWidth);
+  const [dockMode, setDockMode] = useState(false);
   const settings = loadSettings();
   const galleryMode = settings.galleryMode || "all";
-  const dockColumns = settings.dockColumns || 1;
-  const isCompact = windowWidth <= COMPACT_BREAKPOINT;
+  const isCompact = dockMode || windowWidth <= COMPACT_BREAKPOINT;
+  const useDockGrid = dockMode || windowWidth <= DOCK_GRID_BREAKPOINT;
+  const dockGridColumns = windowWidth <= DOCK_ONE_COL_BREAKPOINT ? 1 : 2;
   const missingSaveLocation = settings.saveTarget === "windows"
     ? !settings.windowsSavePath
     : (!settings.distro || !settings.savePath);
@@ -214,15 +224,19 @@ export function MainApp() {
   };
 
   const handleDockRight = async () => {
-    const dockWidth = dockColumns === 2 ? COMPACT_TWO_COL_WIDTH : COMPACT_WIDTH;
-    const ok = await invoke("dock_main_right", { dockColumns }).then(() => true).catch(err => {
+    setDockMode(true);
+    const result = await invoke<DockResult>("toggle_dock_main_right").catch(err => {
       console.error(err);
       setStatus("Dock right failed: " + err);
-      return false;
+      return null;
     });
-    if (!ok) return;
-    setPinned(true);
-    setWindowWidth(dockWidth);
+    if (!result) {
+      setDockMode(false);
+      return;
+    }
+    setPinned(result.alwaysOnTop);
+    setDockMode(result.docked);
+    if (result.docked) setWindowWidth(COMPACT_TWO_COL_WIDTH);
   };
 
   const handleDelete = async () => {
@@ -324,7 +338,7 @@ export function MainApp() {
           active={pinned}
           compact={isCompact}
         />
-        <Btn icon={<ChevronsRight size={14} />} label="Dock Right" onClick={handleDockRight} compact={isCompact} />
+        <Btn icon={<ChevronsRight size={14} />} label={dockMode ? "Undock" : "Dock Right"} onClick={handleDockRight} compact={isCompact} />
         <Btn icon={<EyeOff size={14} />} label="Hide" onClick={handleHide} compact={isCompact} />
 
         <div style={{ flex: 1 }} />
@@ -368,25 +382,6 @@ export function MainApp() {
         >
           <Target size={14} />
         </button>
-
-        {isCompact && galleryMode !== "focus" && (
-          <>
-            <button
-              style={{ ...S.iconBtn, ...(dockColumns === 1 ? { background: "#eff6ff", borderColor: "#bfdbfe", color: "#2563eb" } : {}) }}
-              onClick={() => saveSettings({ dockColumns: 1 })}
-              title="Dock 1"
-            >
-              <List size={14} />
-            </button>
-            <button
-              style={{ ...S.iconBtn, ...(dockColumns === 2 ? { background: "#eff6ff", borderColor: "#bfdbfe", color: "#2563eb" } : {}) }}
-              onClick={() => saveSettings({ dockColumns: 2 })}
-              title="Dock 2"
-            >
-              <LayoutGrid size={14} />
-            </button>
-          </>
-        )}
 
         <div style={{ flex: 1 }} />
 
@@ -445,8 +440,8 @@ export function MainApp() {
         ) : viewMode === "thumbnail" ? (
           <ThumbnailGrid
             files={files}
-            compact={isCompact}
-            dockColumns={dockColumns}
+            compact={useDockGrid}
+            dockGridColumns={dockGridColumns}
             selected={selected}
             onItemClick={handleItemClick}
             onLoadThumb={loadThumb}
@@ -553,10 +548,10 @@ export function MainApp() {
 
 // ── Sub-components ───────────────────────────────────────────────────────────
 
-function ThumbnailGrid({ files, compact, dockColumns, selected, onItemClick, onLoadThumb, onBandSelect }: {
+function ThumbnailGrid({ files, compact, dockGridColumns, selected, onItemClick, onLoadThumb, onBandSelect }: {
   files: CaptureFile[];
   compact: boolean;
-  dockColumns: 1 | 2;
+  dockGridColumns: 1 | 2;
   selected: Set<string>;
   onItemClick: (f: CaptureFile, e: React.MouseEvent) => void;
   onLoadThumb: (f: CaptureFile) => void;
@@ -634,7 +629,7 @@ function ThumbnailGrid({ files, compact, dockColumns, selected, onItemClick, onL
     <div
       ref={containerRef}
       onMouseDown={onMouseDown}
-      style={{ position: "relative", display: "grid", gridTemplateColumns: compact ? `repeat(${dockColumns}, minmax(0, 1fr))` : "repeat(auto-fill, minmax(150px, 1fr))", gap: compact ? 8 : 10, padding: compact ? 10 : 14, minHeight: "100%", alignContent: "start", boxSizing: "border-box" }}
+      style={{ position: "relative", display: "grid", gridTemplateColumns: compact ? (dockGridColumns === 1 ? `${DOCK_CARD_WIDTH}px` : "repeat(2, minmax(0, 1fr))") : "repeat(auto-fill, minmax(150px, 1fr))", gap: compact ? 8 : 10, padding: compact ? 10 : 14, width: "100%", minHeight: "100%", alignContent: "start", justifyContent: "start", boxSizing: "border-box" }}
     >
       {band && (
         <div
@@ -941,7 +936,7 @@ const S: Record<string, React.CSSProperties> = {
   logo: { width: 30, height: 30, borderRadius: 8, background: "linear-gradient(135deg, #3b82f6, #2563eb)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 },
   logoText: { fontSize: 14, fontWeight: 700, color: "#1e293b", marginRight: 4 },
   toolbarSep: { width: 1, height: 20, background: "#e8edf3", margin: "0 2px" },
-  hotkey: { fontSize: 11, color: "#94a3b8", background: "#f1f5f9", borderRadius: 6, padding: "4px 8px", border: "1px solid #e2e8f0" },
+  hotkey: { display: "none", fontSize: 11, color: "#94a3b8", background: "#f1f5f9", borderRadius: 6, padding: "4px 8px", border: "1px solid #e2e8f0" },
   galleryBar: { display: "flex", alignItems: "center", gap: 6, padding: "6px 12px", background: "#fafbfc", borderBottom: "1px solid #e8edf3" },
   galleryLabel: { fontSize: 12, fontWeight: 600, color: "#374151", marginRight: 2 },
   iconBtn: { width: 28, height: 28, borderRadius: 6, border: "1px solid #e2e8f0", background: "white", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: "#64748b", flexShrink: 0 },

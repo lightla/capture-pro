@@ -36,6 +36,24 @@ struct PhysicalRect {
 #[derive(Default)]
 struct OverlayTargetState(Mutex<Option<PhysicalRect>>);
 
+#[derive(Clone, Debug)]
+struct DockSnapshot {
+    position: tauri::PhysicalPosition<i32>,
+    size: tauri::PhysicalSize<u32>,
+    resizable: bool,
+    always_on_top: bool,
+}
+
+#[derive(Default)]
+struct DockState(Mutex<Option<DockSnapshot>>);
+
+#[derive(Clone, Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DockResult {
+    docked: bool,
+    always_on_top: bool,
+}
+
 #[tauri::command]
 fn get_last_target_window_rect(state: tauri::State<'_, OverlayTargetState>) -> Option<PhysicalRect> {
     state.0.lock().ok().and_then(|g| (*g).clone())
@@ -171,14 +189,44 @@ fn hide_main_window(app: tauri::AppHandle) {
 }
 
 #[tauri::command]
-fn dock_main_right(app: tauri::AppHandle, dock_columns: u8) -> Result<(), String> {
+fn toggle_dock_main_right(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, DockState>,
+) -> Result<DockResult, String> {
     let main = app
         .get_webview_window("main")
         .ok_or_else(|| "Main window not found".to_string())?;
 
+    if let Some(snapshot) = state.0.lock().map_err(|_| "Dock state lock failed".to_string())?.take() {
+        let _ = main.set_resizable(true);
+        main
+            .set_position(snapshot.position)
+            .map_err(|e| e.to_string())?;
+        main
+            .set_size(snapshot.size)
+            .map_err(|e| e.to_string())?;
+        main
+            .set_resizable(snapshot.resizable)
+            .map_err(|e| e.to_string())?;
+        let _ = main.set_always_on_top(snapshot.always_on_top);
+        let _ = main.show();
+        let _ = main.set_focus();
+        return Ok(DockResult {
+            docked: false,
+            always_on_top: snapshot.always_on_top,
+        });
+    }
+
     if main.is_maximized().unwrap_or(false) {
         let _ = main.unmaximize();
     }
+
+    let snapshot = DockSnapshot {
+        position: main.outer_position().map_err(|e| e.to_string())?,
+        size: main.outer_size().map_err(|e| e.to_string())?,
+        resizable: main.is_resizable().unwrap_or(true),
+        always_on_top: main.is_always_on_top().unwrap_or(false),
+    };
 
     let monitor = main
         .current_monitor()
@@ -186,26 +234,30 @@ fn dock_main_right(app: tauri::AppHandle, dock_columns: u8) -> Result<(), String
         .or_else(|| main.primary_monitor().ok().flatten())
         .ok_or_else(|| "No monitor found".to_string())?;
 
-    let scale = monitor.scale_factor();
     let work = monitor.work_area();
-    let dock_width = if dock_columns == 2 { 520.0 } else { 360.0 };
-    let dock_height = ((work.size.height as f64 - 24.0) / scale).max(640.0);
-    let x = ((work.position.x as f64 + work.size.width as f64 - 12.0) / scale) - dock_width;
-    let y = (work.position.y as f64 + 12.0) / scale;
+    let dock_width = 520;
+    let dock_height = work.size.height.max(640);
+    let x = work.position.x + work.size.width as i32 - dock_width;
+    let y = work.position.y;
 
     main
-        .set_min_size(Some(tauri::LogicalSize::new(360.0, 640.0)))
+        .set_min_size(Some(tauri::LogicalSize::new(210.0, 640.0)))
         .map_err(|e| e.to_string())?;
     main
-        .set_size(tauri::LogicalSize::new(dock_width, dock_height))
+        .set_size(tauri::PhysicalSize::new(dock_width as u32, dock_height))
         .map_err(|e| e.to_string())?;
     main
-        .set_position(tauri::LogicalPosition::new(x, y))
+        .set_position(tauri::PhysicalPosition::new(x, y))
         .map_err(|e| e.to_string())?;
+    main.set_resizable(false).map_err(|e| e.to_string())?;
+    *state.0.lock().map_err(|_| "Dock state lock failed".to_string())? = Some(snapshot);
     let _ = main.set_always_on_top(true);
     let _ = main.show();
     let _ = main.set_focus();
-    Ok(())
+    Ok(DockResult {
+        docked: true,
+        always_on_top: true,
+    })
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -429,6 +481,7 @@ pub fn run() {
             app.manage(ClipboardState::default());
             app.manage(SettingsState::default());
             app.manage(OverlayTargetState::default());
+            app.manage(DockState::default());
 
             // Minimize-to-tray behavior: keep service running even when user closes the window.
             if let Some(main) = app.get_webview_window("main") {
@@ -539,7 +592,7 @@ pub fn run() {
             show_overlay,
             set_always_on_top,
             hide_main_window,
-            dock_main_right,
+            toggle_dock_main_right,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
