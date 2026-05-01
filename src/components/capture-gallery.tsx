@@ -164,7 +164,9 @@ export function CaptureGallery() {
 
   const copyPaths = async () => {
     const paths = Array.from(selected).join("\n") || files.map((f) => f.path).join("\n");
-    await writeText(paths).catch(() => {});
+    await invoke("set_clipboard_text", { text: paths }).catch(async () => {
+      await writeText(paths).catch(() => {});
+    });
   };
 
   const selectAll = () => {

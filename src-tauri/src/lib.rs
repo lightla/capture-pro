@@ -1,6 +1,7 @@
 mod wsl;
 mod capture;
 mod local_fs;
+mod windows_folder_picker;
 #[cfg(target_os = "windows")]
 mod win_clipboard;
 use tauri::Manager;
@@ -36,6 +37,19 @@ fn set_clipboard_files(paths: Vec<String>) -> Result<(), String> {
     {
         let _ = paths;
         Err("File clipboard is only supported on Windows".to_string())
+    }
+}
+
+#[tauri::command]
+fn set_clipboard_text(text: String) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        return win_clipboard::set_clipboard_text(&text);
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = text;
+        Err("Text clipboard is only supported on Windows in this build".to_string())
     }
 }
 
@@ -149,6 +163,7 @@ pub fn run() {
                             let _ = tauri::async_runtime::spawn_blocking(move || {
                                 if win_clipboard::set_clipboard_files(&[file_path]).is_ok() {
                                     let _ = win_clipboard::paste_ctrl_v();
+                                    std::thread::sleep(std::time::Duration::from_millis(90));
                                     // Restore the path text so Ctrl+V still pastes the path after the file paste.
                                     let _ = win_clipboard::set_clipboard_text(&text_path);
                                 }
@@ -254,12 +269,16 @@ pub fn run() {
             local_fs::read_local_image_as_base64,
             local_fs::delete_local_file,
             local_fs::queue_local_base64_write,
+            local_fs::list_local_directories,
+            local_fs::get_local_home_directory,
+            windows_folder_picker::pick_windows_folder,
             capture::capture_full_screen,
             capture::capture_full_screen_preview,
             capture::capture_region,
             capture::capture_region_clean,
             set_last_capture_paths,
             set_clipboard_files,
+            set_clipboard_text,
             close_overlay,
             show_overlay,
             set_always_on_top,

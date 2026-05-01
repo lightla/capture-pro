@@ -162,20 +162,26 @@ export function MainApp() {
     const paths = selected.size > 0
       ? Array.from(selected)
       : files.map(f => f.path);
-    await writeText(paths.join("\n")).catch(console.error);
+    await invoke("set_clipboard_text", { text: paths.join("\n") }).catch(async () => {
+      await writeText(paths.join("\n")).catch(console.error);
+    });
     setStatus(`Copied ${paths.length} path(s) to clipboard.`);
   };
 
   const handleCopyFiles = async () => {
     const paths = selected.size > 0 ? Array.from(selected) : files.map(f => f.path);
     if (settings.saveTarget === "windows") {
-      await writeText(paths.join("\n")).catch(console.error);
+      await invoke("set_clipboard_text", { text: paths.join("\n") }).catch(async () => {
+        await writeText(paths.join("\n")).catch(console.error);
+      });
       setStatus(`Copied ${paths.length} file path(s) to clipboard.`);
       return;
     }
     // WSL: copy UNC paths so Windows apps can access the files.
     const uncPaths = paths.map(p => `\\\\wsl.localhost\\${settings.distro}${p.replace(/\//g, "\\")}`);
-    await writeText(uncPaths.join("\n")).catch(console.error);
+    await invoke("set_clipboard_text", { text: uncPaths.join("\n") }).catch(async () => {
+      await writeText(uncPaths.join("\n")).catch(console.error);
+    });
     setStatus(`Copied ${uncPaths.length} UNC path(s) to clipboard.`);
   };
 

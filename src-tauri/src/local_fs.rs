@@ -97,3 +97,49 @@ pub async fn queue_local_base64_write(path: String, data_url: String) -> Result<
     Ok(())
 }
 
+#[tauri::command]
+pub async fn list_local_directories(path: String) -> Result<Vec<String>, String> {
+    let dir_path = PathBuf::from(path);
+    let read_dir = fs::read_dir(&dir_path)
+        .map_err(|e| format!("Failed to read directory: {}", e))?;
+
+    let mut dirs: Vec<String> = Vec::new();
+    for entry in read_dir {
+        let entry = match entry {
+            Ok(e) => e,
+            Err(_) => continue,
+        };
+        let p = entry.path();
+        if !p.is_dir() {
+            continue;
+        }
+        if let Some(name) = p.file_name().and_then(|s| s.to_str()) {
+            if !name.is_empty() {
+                dirs.push(name.to_string());
+            }
+        }
+    }
+    dirs.sort_by(|a, b| a.to_lowercase().cmp(&b.to_lowercase()));
+    Ok(dirs)
+}
+
+#[tauri::command]
+pub async fn get_local_home_directory() -> Result<String, String> {
+    if let Ok(v) = std::env::var("USERPROFILE") {
+        if !v.trim().is_empty() {
+            return Ok(v);
+        }
+    }
+    if let Ok(v) = std::env::var("HOME") {
+        if !v.trim().is_empty() {
+            return Ok(v);
+        }
+    }
+    if let (Ok(drive), Ok(path)) = (std::env::var("HOMEDRIVE"), std::env::var("HOMEPATH")) {
+        let v = format!("{}{}", drive, path);
+        if !v.trim().is_empty() {
+            return Ok(v);
+        }
+    }
+    Ok("C:\\".to_string())
+}

@@ -178,7 +178,8 @@ export function CaptureOverlay() {
           // On Windows, file-drop is what allows Ctrl+V to paste into apps.
           await invoke("set_clipboard_files", { paths: [filePathForPaste] }).catch(() => {});
         } else {
-          await writeText(clipboardText).catch(() => {});
+          await invoke("set_clipboard_text", { text: clipboardText })
+            .catch(async () => { await writeText(clipboardText).catch(() => {}); });
         }
         // Always keep the path string handy for users (Ctrl+V) even if mode is files.
         // (We still store it for the global paste hotkey in Rust.)

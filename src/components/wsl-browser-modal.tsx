@@ -14,6 +14,8 @@ export function WslBrowserModal({ onClose }: { onClose: () => void }) {
   const [winPath, setWinPath] = useState(cfg.windowsSavePath || "");
   const [dirs, setDirs] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
+  const [winDirs, setWinDirs] = useState<string[]>([]);
+  const [winLoading, setWinLoading] = useState(false);
   const [clipMode, setClipMode] = useState<"paths"|"files">(cfg.clipboardMode || "paths");
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState("");
@@ -40,6 +42,33 @@ export function WslBrowserModal({ onClose }: { onClose: () => void }) {
       .finally(() => setLoading(false));
   }, [saveTarget, distro, path]);
 
+  useEffect(() => {
+    if (saveTarget !== "windows") return;
+
+    const run = async () => {
+      try {
+        let p = (winPath || "").trim();
+        if (!p) {
+          p = await invoke<string>("get_local_home_directory").catch(() => "C:\\");
+          p = (p || "").trim();
+          if (!p) p = "C:\\";
+          setWinPath(p);
+        }
+
+        setWinLoading(true);
+        setWinDirs([]);
+        const list = await invoke<string[]>("list_local_directories", { path: p });
+        setWinDirs(list);
+      } catch (e) {
+        setError(String(e));
+      } finally {
+        setWinLoading(false);
+      }
+    };
+
+    run();
+  }, [saveTarget, winPath]);
+
   const goHome = async () => {
     const home = await invoke<string>("get_wsl_home_directory", { distro }).catch(() => "/home");
     setPath(home.trim() || "/home");
@@ -55,12 +84,40 @@ export function WslBrowserModal({ onClose }: { onClose: () => void }) {
     setPath(path === "/" ? `/${dir}` : `${path}/${dir}`);
   };
 
+  const winNormalize = (p: string) => {
+    const s = (p || "").replace(/\//g, "\\").trim();
+    if (/^[a-zA-Z]:\\?$/.test(s)) return s.endsWith("\\") ? s : `${s}\\`;
+    return s.replace(/\\+$/g, "");
+  };
+
+  const winGoHome = async () => {
+    const home = await invoke<string>("get_local_home_directory").catch(() => "C:\\");
+    setWinPath(winNormalize(home));
+  };
+
+  const winGoUp = () => {
+    const p = winNormalize(winPath);
+    if (/^[a-zA-Z]:\\$/.test(p)) return;
+    const idx = p.lastIndexOf("\\");
+    if (idx <= 2) {
+      setWinPath(p.slice(0, 2) + "\\");
+      return;
+    }
+    setWinPath(p.slice(0, idx));
+  };
+
+  const winEnter = (dir: string) => {
+    const base = winNormalize(winPath);
+    if (/^[a-zA-Z]:\\$/.test(base)) setWinPath(base + dir);
+    else setWinPath(base + "\\" + dir);
+  };
+
   const handleSave = () => {
     saveSettings({
       saveTarget,
       distro: saveTarget === "wsl" ? distro : "",
       savePath: saveTarget === "wsl" ? path : "",
-      windowsSavePath: saveTarget === "windows" ? winPath : "",
+      windowsSavePath: saveTarget === "windows" ? winNormalize(winPath) : "",
       clipboardMode: clipMode
     });
     setSaved(true);
@@ -182,18 +239,81 @@ export function WslBrowserModal({ onClose }: { onClose: () => void }) {
             </div>
           </div>
           ) : (
-            <div>
+          <div>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
               <label style={L.label}>Save Location</label>
-              <input
-                value={winPath}
-                onChange={(e) => setWinPath(e.target.value)}
-                placeholder="e.g. C:\\Users\\You\\Pictures\\CapturePro"
-                style={{ width: "100%", height: 38, borderRadius: 9, border: "1px solid #e2e8f0", padding: "0 12px", fontSize: 13, background: "#fafbfc", outline: "none", fontFamily: "monospace" }}
-              />
-              <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 6 }}>
-                Tip: set a real Windows folder path (the app will create it if missing).
-              </div>
+              <span style={{ fontSize: 10, color: "#94a3b8", fontFamily: "monospace" }}>{winNormalize(winPath) || "—"}</span>
             </div>
+
+            {(() => {
+              const p = winNormalize(winPath) || "C:\\";
+              const m = p.match(/^([a-zA-Z]:)\\?(.*)$/);
+              const drive = m?.[1] || "C:";
+              const rest = (m?.[2] || "").split("\\").filter(Boolean);
+              const crumbs = [drive, ...rest];
+              const atRoot = /^[a-zA-Z]:\\$/.test(p);
+              const buildTo = (i: number) => {
+                if (i === 0) return `${drive}\\`;
+                return `${drive}\\${rest.slice(0, i).join("\\")}`;
+              };
+
+              return (
+                <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 2, padding: "8px 12px", background: "#f8fafc", borderRadius: 10, border: "1px solid #f1f5f9", marginBottom: 8, fontSize: 12 }}>
+                  {crumbs.map((part, i) => (
+                    <span key={i} style={{ display: "flex", alignItems: "center", gap: 2 }}>
+                      {i > 0 && <ChevronRight size={11} style={{ color: "#cbd5e1" }} />}
+                      <span onClick={() => setWinPath(buildTo(i))} style={L.crumb(i === crumbs.length - 1)}>{part}</span>
+                    </span>
+                  ))}
+                  <button onClick={winGoHome} style={{ marginLeft: "auto", ...L.iconBtn }} title="Home"><Home size={14} /></button>
+                  {!atRoot && (
+                    <button onClick={winGoUp} style={{ display: "flex", alignItems: "center", gap: 3, fontSize: 11, color: "#94a3b8", background: "none", border: "none", cursor: "pointer", padding: "2px 6px" }}>
+                      <ChevronUp size={11} /> Up
+                    </button>
+                  )}
+                </div>
+              );
+            })()}
+
+            <div style={{ height: 220, overflowY: "auto", border: "1px solid #f1f5f9", borderRadius: 12, padding: 10, background: "#fafafa" }}>
+              {winLoading ? (
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", flexDirection: "column", gap: 8, color: "#94a3b8" }}>
+                  <div style={{ width: 24, height: 24, border: "2px solid #e2e8f0", borderTopColor: "#3b82f6", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
+                  <span style={{ fontSize: 12 }}>Scanning...</span>
+                </div>
+              ) : winDirs.length === 0 ? (
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", flexDirection: "column", gap: 6, color: "#94a3b8" }}>
+                  <span style={{ fontSize: 24 }}>📁</span>
+                  <span style={{ fontSize: 12 }}>No subdirectories — you can select this folder</span>
+                </div>
+              ) : (
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                  {winDirs.map(dir => (
+                    <button key={dir} onClick={() => winEnter(dir)} style={L.dirBtn}
+                      onMouseEnter={e => { (e.currentTarget as HTMLElement).style.borderColor = "#93c5fd"; (e.currentTarget as HTMLElement).style.background = "#eff6ff"; }}
+                      onMouseLeave={e => { (e.currentTarget as HTMLElement).style.borderColor = "#e8edf3"; (e.currentTarget as HTMLElement).style.background = "white"; }}>
+                      <Folder size={14} style={{ color: "#60a5fa", flexShrink: 0 }} />
+                      <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", textAlign: "left" }}>{dir}</span>
+                      <ChevronRight size={12} style={{ color: "#cbd5e1", flexShrink: 0 }} />
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 6 }}>
+              Tip: browse like WSL, then click Save Settings.{" "}
+              <button
+                onClick={async () => {
+                  const picked = await invoke<string | null>("pick_windows_folder", { default_path: winNormalize(winPath) || null }).catch(() => null);
+                  if (picked) setWinPath(picked);
+                }}
+                style={{ fontSize: 11, color: "#3b82f6", background: "none", border: "none", cursor: "pointer", padding: 0 }}
+              >
+                Use system picker
+              </button>
+            </div>
+          </div>
           )}
 
           {/* Clipboard mode */}
@@ -226,7 +346,7 @@ export function WslBrowserModal({ onClose }: { onClose: () => void }) {
                 <span style={{ fontFamily: "monospace", fontSize: 11 }}>{path}</span>
               </>
             ) : (
-              <span style={{ fontFamily: "monospace", fontSize: 11 }}>{winPath || "—"}</span>
+              <span style={{ fontFamily: "monospace", fontSize: 11 }}>{winNormalize(winPath) || "—"}</span>
             )}
           </div>
           <div style={{ display: "flex", gap: 8 }}>
