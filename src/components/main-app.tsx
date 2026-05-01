@@ -334,7 +334,7 @@ export function MainApp() {
       <div style={{ ...S.toolbar, gap: isCompact ? 4 : 6, padding: isCompact ? "8px 10px" : "8px 12px" }}>
         {!dockMode && (
           <div style={S.logo}>
-            <Camera style={{ width: 16, height: 16, color: "white" }} />
+          <Camera style={{ width: 16, height: 16, color: "#bae6fd" }} />
           </div>
         )}
         {!isCompact && <span style={S.logoText}>Capture Pro <span style={{ color: "#60a5fa" }}>v2</span></span>}
@@ -354,9 +354,9 @@ export function MainApp() {
           <Btn icon={<ChevronsRight size={14} />} label="Undock" onClick={() => handleDockRight(dockColumns)} compact={isCompact} active />
         ) : (
           <div style={{ position: "relative", display: "flex", flexShrink: 0 }}>
-            <Btn icon={<ChevronsRight size={14} />} label={`Dock ${dockColumns}`} onClick={() => handleDockRight(dockColumns)} compact={isCompact} active />
+            <Btn icon={<ChevronsRight size={14} />} label={`Dock ${dockColumns}`} onClick={() => handleDockRight(dockColumns)} compact={isCompact} />
             <button
-              style={{ ...S.iconBtn, width: isCompact ? 28 : 30, height: isCompact ? 36 : 32, marginLeft: -1, borderTopLeftRadius: 0, borderBottomLeftRadius: 0, background: "#eff6ff", borderColor: "#93c5fd", color: "#2563eb" }}
+              style={{ ...S.iconBtn, width: isCompact ? 28 : 30, height: isCompact ? 36 : 32, marginLeft: -1, borderTopLeftRadius: 0, borderBottomLeftRadius: 0, ...(showDockMenu ? { background: "#eff6ff", borderColor: "#93c5fd", color: "#2563eb" } : {}) }}
               onClick={() => setShowDockMenu(v => !v)}
               title="Choose dock layout"
             >
@@ -947,8 +947,8 @@ function Btn({ icon, label, onClick, primary, active, small, danger, disabled, c
         padding: compact ? 0 : (small ? "5px 10px" : "6px 12px"),
         borderRadius: label.startsWith("Dock ") && !compact ? "8px 0 0 8px" : 8,
         border: danger ? "1px solid #fecaca" : active ? "1px solid #93c5fd" : "1px solid #e2e8f0",
-        background: primary ? "#2563eb" : danger ? "#fef2f2" : active ? "#eff6ff" : "white",
-        color: primary ? "white" : danger ? "#dc2626" : active ? "#2563eb" : "#374151",
+        background: primary ? "#93c5fd" : danger ? "#fef2f2" : active ? "#eff6ff" : "white",
+        color: primary ? "#1e3a8a" : danger ? "#dc2626" : active ? "#2563eb" : "#374151",
         fontSize: small ? 12 : 13, fontWeight: 500, cursor: disabled ? "not-allowed" : "pointer",
         opacity: disabled ? 0.5 : 1,
         boxShadow: primary ? "0 2px 8px rgba(37,99,235,0.25)" : "none",
