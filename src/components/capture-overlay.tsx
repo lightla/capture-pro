@@ -18,6 +18,7 @@ declare global {
     __captureProPendingError?: string;
     __captureProSetBackground?: (background: string) => void;
     __captureProSetError?: (error: string) => void;
+    __captureProPrepForShow?: () => void;
   }
 }
 
@@ -28,27 +29,68 @@ export function CaptureOverlay() {
   const [saving, setSaving] = useState(false);
   const [cursor, setCursor] = useState<React.CSSProperties["cursor"]>("crosshair");
   const cursorRef = useRef<React.CSSProperties["cursor"]>("crosshair");
+  const backgroundRef = useRef<string | null>(null);
+  const recycleBinRef = useRef<string[]>([]);
+  const cleanupScheduledRef = useRef(false);
 
   const dragMode = useRef<DragMode>("none");
   const startMouse = useRef({ x: 0, y: 0 });
   const startRect = useRef<Rect | null>(null);
   const captureToken = useRef(0);
 
+  const scheduleBackgroundCleanup = useCallback(() => {
+    if (cleanupScheduledRef.current) return;
+    cleanupScheduledRef.current = true;
+
+    const run = () => {
+      recycleBinRef.current.length = 0;
+      cleanupScheduledRef.current = false;
+    };
+
+    const w = window as any;
+    if (typeof w.requestIdleCallback === "function") {
+      w.requestIdleCallback(run, { timeout: 1500 });
+    } else {
+      setTimeout(run, 0);
+    }
+  }, []);
+
+  const swapBackground = useCallback((next: string | null) => {
+    const prev = backgroundRef.current;
+    if (prev && prev !== next) {
+      // Keep old large data URLs around briefly so GC doesn't hitch on the next capture.
+      recycleBinRef.current.push(prev);
+      scheduleBackgroundCleanup();
+    }
+    backgroundRef.current = next;
+    setBackground(next);
+  }, [scheduleBackgroundCleanup]);
+
   const resetOverlay = useCallback(() => {
     captureToken.current++;
-    setBackground(null);
+    swapBackground(null);
     setSelection(null);
     setSaving(false);
     setError(null);
-  }, []);
+  }, [swapBackground]);
 
   useEffect(() => {
     let unlistenHide: any;
+    window.__captureProPrepForShow = () => {
+      // Keep this extremely lightweight (no background cleanup) to avoid any hitch on next capture.
+      dragMode.current = "none";
+      startRect.current = null;
+      setSelection(null);
+      setSaving(false);
+      setError(null);
+      cursorRef.current = "crosshair";
+      setCursor("crosshair");
+    };
     window.__captureProSetBackground = (background) => {
       captureToken.current++;
       window.__captureProPendingBackground = undefined;
       window.__captureProPendingError = undefined;
-      setBackground(background);
+      swapBackground(background);
       setSelection(null);
       setSaving(false);
       setError(null);
@@ -74,9 +116,10 @@ export function CaptureOverlay() {
     return () => {
       if (window.__captureProSetBackground) delete window.__captureProSetBackground;
       if (window.__captureProSetError) delete window.__captureProSetError;
+      if (window.__captureProPrepForShow) delete window.__captureProPrepForShow;
       if (unlistenHide) unlistenHide();
     };
-  }, [resetOverlay]);
+  }, [resetOverlay, swapBackground]);
 
 
 
@@ -107,7 +150,8 @@ export function CaptureOverlay() {
       const distro = settings.distro || "Ubuntu-24.04";
       const savePath = settings.savePath || "/home";
       const path = `${savePath}/Snip_${Date.now()}.png`;
-      await invoke("write_wsl_base64_file", { distro, path, dataUrl });
+      // Save in background so the next capture starts instantly.
+      invoke("queue_wsl_base64_write", { distro, path, dataUrl });
 
       setSaving(false);
       invoke("close_overlay");

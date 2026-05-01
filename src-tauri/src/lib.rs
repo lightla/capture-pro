@@ -1,15 +1,20 @@
 mod wsl;
 mod capture;
-use tauri::{Manager, Emitter};
+use tauri::Manager;
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
+use std::sync::atomic::{AtomicBool, Ordering};
+
+static ALLOW_EXIT: AtomicBool = AtomicBool::new(false);
 
 async fn show_overlay_impl(app: tauri::AppHandle) {
     if let Some(main) = app.get_webview_window("main") {
         let _ = main.hide();
     }
     if let Some(overlay) = app.get_webview_window("overlay") {
+        // Prepare overlay for the next capture without doing heavy cleanup.
+        // This ensures old selection/rectangle is cleared immediately.
+        let _ = overlay.eval("window.__captureProPrepForShow && window.__captureProPrepForShow();");
         let _ = overlay.hide();
-        let _ = overlay.emit("overlay-hide", ());
     }
 
     std::thread::sleep(std::time::Duration::from_millis(180));
@@ -39,9 +44,6 @@ async fn show_overlay_impl(app: tauri::AppHandle) {
 
 #[tauri::command]
 fn close_overlay(app: tauri::AppHandle) {
-    if let Some(overlay) = app.get_webview_window("overlay") {
-        let _ = overlay.emit("overlay-hide", ());
-    }
     if let Some(overlay) = app.get_webview_window("overlay") {
         let _ = overlay.hide();
     }
@@ -97,6 +99,70 @@ pub fn run() {
             .build()
         )
         .setup(move |app| {
+            // Minimize-to-tray behavior: keep service running even when user closes the window.
+            if let Some(main) = app.get_webview_window("main") {
+                let main_window = main.clone();
+                main.on_window_event(move |event| {
+                    if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                        if !ALLOW_EXIT.load(Ordering::SeqCst) {
+                            api.prevent_close();
+                            let _ = main_window.hide();
+                        }
+                    }
+                });
+            }
+
+            // Tray icon (EVKey-style) so the app feels like a background service.
+            {
+                use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
+                use tauri::tray::TrayIconBuilder;
+
+                let show = MenuItem::with_id(app, "tray_show", "Show", true, None::<String>)?;
+                let capture = MenuItem::with_id(app, "tray_capture", "Capture", true, None::<String>)?;
+                let quit = MenuItem::with_id(app, "tray_quit", "Quit", true, None::<String>)?;
+                let sep = PredefinedMenuItem::separator(app)?;
+                let menu = Menu::with_items(app, &[&show, &capture, &sep, &quit])?;
+
+                let tray = TrayIconBuilder::new()
+                    .icon(tauri::include_image!("icons/32x32.png"))
+                    .menu(&menu)
+                    .show_menu_on_left_click(true)
+                    .on_menu_event(|app, event| {
+                        match event.id().as_ref() {
+                            "tray_show" => {
+                                if let Some(main) = app.get_webview_window("main") {
+                                    let _ = main.show();
+                                    let _ = main.set_focus();
+                                }
+                            }
+                            "tray_capture" => {
+                                let app = app.clone();
+                                tauri::async_runtime::spawn(async move {
+                                    show_overlay_impl(app).await;
+                                });
+                            }
+                            "tray_quit" => {
+                                ALLOW_EXIT.store(true, Ordering::SeqCst);
+                                app.exit(0);
+                            }
+                            _ => {}
+                        }
+                    })
+                    .on_tray_icon_event(|tray, event| {
+                        if matches!(event, tauri::tray::TrayIconEvent::DoubleClick { .. }) {
+                            let app = tray.app_handle();
+                            if let Some(main) = app.get_webview_window("main") {
+                                let _ = main.show();
+                                let _ = main.set_focus();
+                            }
+                        }
+                    })
+                    .build(app)?;
+
+                // Keep the tray icon alive for the lifetime of the app.
+                std::mem::forget(tray);
+            }
+
             match app.global_shortcut().register(hotkey) {
                 Ok(_) => eprintln!("[CaptureProKey] Shortcut Ctrl+Shift+Z registered OK"),
                 Err(e) => eprintln!("[CaptureProKey] FAILED to register shortcut: {:?}", e),
@@ -116,6 +182,7 @@ pub fn run() {
             capture::capture_full_screen_preview,
             capture::capture_region,
             capture::capture_region_clean,
+            wsl::queue_wsl_base64_write,
             close_overlay,
             show_overlay,
             set_always_on_top,

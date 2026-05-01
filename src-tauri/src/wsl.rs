@@ -208,3 +208,55 @@ pub async fn write_wsl_base64_file(distro: String, path: String, data_url: Strin
 
     write_wsl_file(distro, path, content).await
 }
+
+fn write_wsl_file_sync(distro: &str, path: &str, content: &[u8]) -> Result<(), String> {
+    if let Some(unc_path) = wsl_path_to_unc(distro, path) {
+        if let Some(parent) = unc_path.parent() {
+            if std::fs::create_dir_all(parent).is_ok() && std::fs::write(&unc_path, content).is_ok() {
+                return Ok(());
+            }
+        }
+    }
+
+    let dir = if let Some(pos) = path.rfind('/') { &path[..pos] } else { "/" };
+    let cmd = format!("mkdir -p '{}' && cat > '{}'", dir, path);
+
+    let mut child = Command::new("wsl.exe")
+        .args(["-d", distro, "--", "bash", "-c", &cmd])
+        .stdin(std::process::Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("Failed to spawn wsl.exe: {}", e))?;
+
+    let mut stdin = child.stdin.take().ok_or("Failed to open stdin")?;
+    use std::io::Write;
+    stdin
+        .write_all(content)
+        .map_err(|e| format!("Failed to write stdin: {}", e))?;
+    drop(stdin);
+
+    let status = child.wait().map_err(|e| e.to_string())?;
+    if !status.success() {
+        return Err(format!("WSL write failed for path: {}", path));
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn queue_wsl_base64_write(distro: String, path: String, data_url: String) -> Result<(), String> {
+    // Fire-and-forget background write so it never blocks the next capture.
+    tauri::async_runtime::spawn(async move {
+        let _ = tauri::async_runtime::spawn_blocking(move || {
+            let encoded = data_url
+                .split_once(',')
+                .map(|(_, data)| data)
+                .unwrap_or(data_url.as_str());
+            let content = general_purpose::STANDARD
+                .decode(encoded)
+                .map_err(|e| format!("Failed to decode base64 image: {}", e))?;
+            write_wsl_file_sync(&distro, &path, &content)
+        })
+        .await;
+    });
+    Ok(())
+}
