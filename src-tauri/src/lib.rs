@@ -61,6 +61,7 @@ fn set_exclude_from_capture(window: &tauri::WebviewWindow, exclude: bool) {
 }
 
 static ALLOW_EXIT: AtomicBool = AtomicBool::new(false);
+static MAIN_IS_DOCKED: AtomicBool = AtomicBool::new(false);
 
 #[derive(Clone, Debug, Default)]
 struct LastCapture {
@@ -131,6 +132,10 @@ fn set_main_min_size(app: tauri::AppHandle, min_w: f64, min_h: f64, snap: Option
     let main = app
         .get_webview_window("main")
         .ok_or_else(|| "Main window not found".to_string())?;
+    if MAIN_IS_DOCKED.load(Ordering::SeqCst) {
+        // Dock mode owns sizing; ignore normal-mode min sizing updates.
+        return Ok(());
+    }
     let (w, h) = get_main_min_size();
     main.set_min_size(Some(tauri::LogicalSize::new(w, h)))
         .map_err(|e| e.to_string())?;
@@ -348,6 +353,7 @@ fn toggle_dock_main_right(
         .ok_or_else(|| "Main window not found".to_string())?;
 
     if let Some(snapshot) = state.0.lock().map_err(|_| "Dock state lock failed".to_string())?.take() {
+        MAIN_IS_DOCKED.store(false, Ordering::SeqCst);
         let _ = main.set_resizable(true);
         // Restore normal minimum size when undocking.
         let (min_w, min_h) = get_main_min_size();
@@ -375,6 +381,9 @@ fn toggle_dock_main_right(
     if main.is_maximized().unwrap_or(false) {
         let _ = main.unmaximize();
     }
+
+    // Mark docked early so resize/move events during docking won't trigger normal-mode min enforcement.
+    MAIN_IS_DOCKED.store(true, Ordering::SeqCst);
 
     let snapshot = DockSnapshot {
         position: main.outer_position().map_err(|e| e.to_string())?,
@@ -421,6 +430,9 @@ fn toggle_dock_main_right(
 }
 
 fn enforce_main_min_size(window: &tauri::WebviewWindow) {
+    if MAIN_IS_DOCKED.load(Ordering::SeqCst) {
+        return;
+    }
     let (min_w_logical, min_h_logical) = get_main_min_size();
     // Re-apply min size at the native layer in case it was reset by some code path.
     let _ = window.set_min_size(Some(tauri::LogicalSize::new(min_w_logical, min_h_logical)));

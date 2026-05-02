@@ -24,7 +24,6 @@ interface DockResult {
 
 const COMPACT_WIDTH = 210;
 const COMPACT_HEIGHT = 640;
-const DOCK_CARD_WIDTH = 180;
 const NORMAL_MIN_WIDTH = 800;
 const THUMB_CARD_HEIGHT = 128;
 const THUMB_IMAGE_HEIGHT = 100;
@@ -771,7 +770,7 @@ function ThumbnailGrid({ files, compact, dockGridColumns, selected, onItemClick,
       data-thumb-grid="1"
       ref={containerRef}
       onMouseDown={onMouseDown}
-      style={{ position: "relative", display: "grid", gridTemplateColumns: compact ? (dockGridColumns === 1 ? `${DOCK_CARD_WIDTH}px` : "repeat(2, minmax(0, 1fr))") : "repeat(auto-fill, minmax(150px, 1fr))", gap: compact ? 8 : THUMB_GRID_GAP, paddingTop: compact ? 10 : THUMB_GRID_PAD_TOP, paddingLeft: compact ? 10 : THUMB_GRID_PAD_X, paddingRight: compact ? 10 : THUMB_GRID_PAD_X, paddingBottom: compact ? 10 : THUMB_GRID_PAD_BOTTOM + THUMB_BOTTOM_SAFE_SPACE, width: "100%", minHeight: compact ? "100%" : THUMB_MIN_GALLERY_HEIGHT + THUMB_BOTTOM_SAFE_SPACE, alignContent: "start", alignItems: "start", justifyContent: compact && dockGridColumns === 1 ? "center" : "start", boxSizing: "border-box" }}
+      style={{ position: "relative", display: "grid", gridTemplateColumns: compact ? (dockGridColumns === 1 ? "1fr" : "repeat(2, minmax(0, 1fr))") : "repeat(auto-fill, minmax(150px, 1fr))", gap: compact ? 8 : THUMB_GRID_GAP, paddingTop: compact ? 10 : THUMB_GRID_PAD_TOP, paddingLeft: compact ? 10 : THUMB_GRID_PAD_X, paddingRight: compact ? 10 : THUMB_GRID_PAD_X, paddingBottom: compact ? 10 : THUMB_GRID_PAD_BOTTOM + THUMB_BOTTOM_SAFE_SPACE, width: "100%", minHeight: compact ? "100%" : THUMB_MIN_GALLERY_HEIGHT + THUMB_BOTTOM_SAFE_SPACE, alignContent: "start", alignItems: "start", justifyContent: "start", boxSizing: "border-box" }}
     >
       {band && (
         <div
