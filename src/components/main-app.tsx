@@ -816,11 +816,6 @@ function ThumbnailGrid({ files, compact, dockGridColumns, selected, onItemClick,
               boxSizing: "border-box",
             }}
           >
-            {isSel && (
-              <div style={{ position: "absolute", top: 5, right: 5, zIndex: 2, width: 18, height: 18, borderRadius: "50%", background: "#3b82f6", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                <svg width="10" height="10" viewBox="0 0 10 10"><path d="M2 5l2 2 4-4" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" fill="none" /></svg>
-              </div>
-            )}
             <div style={{ height: THUMB_IMAGE_HEIGHT, background: "#f8fafc", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
               {f.thumbnail
                 ? <img src={f.thumbnail} alt={f.name} style={{ width: "100%", height: "100%", objectFit: "cover" }} />

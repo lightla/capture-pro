@@ -265,15 +265,6 @@ export function CaptureGallery() {
                 onMouseOver={() => !file.thumbnail && loadThumbnail(file)}
               >
                 <div style={s.imgBox}>
-                  {isSelected && (
-                    <div style={{ position: "absolute", top: 4, right: 4, zIndex: 2 }}>
-                      <div style={{ width: 18, height: 18, borderRadius: "50%", background: "#3b82f6", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                        <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-                          <path d="M2 5l2 2 4-4" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                        </svg>
-                      </div>
-                    </div>
-                  )}
                   {file.thumbnail ? (
                     <img src={file.thumbnail} alt={file.name} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
                   ) : file.loading ? (

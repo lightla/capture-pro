@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { loadSettings, saveSettings } from "@/lib/store";
-import { Folder, ChevronRight, Home, Check, X, ChevronUp, ChevronDown } from "lucide-react";
+import { Folder, ChevronRight, Home, Check, X, ChevronUp, ChevronDown, CheckSquare, Square } from "lucide-react";
 
 interface WslDistro { name: string; is_default: boolean; }
 
@@ -703,44 +703,24 @@ export function WslBrowserModal({ onClose }: { onClose: () => void }) {
               ))}
             </div>
             {clipMode === "paths" && (
-              <div style={{ marginTop: 6, fontSize: 11, color: "#64748b" }}>
-                <span style={{ color: "#64748b" }}>Enable simulate paste from copied paths.</span>
+              <div style={{ marginTop: 6, fontSize: 11, color: "#64748b", display: "flex", alignItems: "center", gap: 4, lineHeight: "16px" }}>
+                <span style={{ color: "#64748b" }}>Simulate paste image from copied path</span>
                 <button
                   type="button"
                   onClick={() => setSimulateEnabled(v => !v)}
+                  title="Toggle simulate paste"
                   style={{
-                    marginLeft: 8,
-                    height: 22,
-                    padding: "0 8px",
-                    borderRadius: 8,
-                    border: "1px solid #cbd5e1",
-                    background: "#f8fafc",
+                    border: "none",
+                    background: "transparent",
+                    padding: 0,
                     cursor: "pointer",
                     display: "inline-flex",
                     alignItems: "center",
-                    gap: 6,
-                    color: "#334155",
-                    fontSize: 11,
+                    verticalAlign: "middle",
+                    color: simulateEnabled ? "#2563eb" : "#94a3b8",
                   }}
-                  title="Enable/disable simulate paste hotkey"
                 >
-                  <span
-                    style={{
-                      width: 14,
-                      height: 14,
-                      borderRadius: 4,
-                      border: "1px solid #cbd5e1",
-                      background: simulateEnabled ? "#2563eb" : "white",
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      color: "white",
-                      flexShrink: 0,
-                    }}
-                  >
-                    {simulateEnabled ? <Check size={11} /> : null}
-                  </span>
-                  Enabled
+                  {simulateEnabled ? <CheckSquare size={16} /> : <Square size={16} />}
                 </button>
               </div>
             )}
