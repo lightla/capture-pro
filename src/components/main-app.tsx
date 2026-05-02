@@ -177,9 +177,10 @@ export function MainApp() {
       const last = lastSentMinRef.current;
       if (!last || last.w !== minW || last.h !== requiredMinH) {
         lastSentMinRef.current = { w: minW, h: requiredMinH };
-        invoke("set_main_min_size", { minW, minH: requiredMinH }).catch(() => {});
+        const snap = !didAutoSizeRef.current;
+        invoke("set_main_min_size", { minW, minH: requiredMinH, snap }).catch(() => {});
       }
-      // First time entering thumbnail mode, allow backend to snap up if the current size is below min.
+      // First time entering thumbnail mode, snap window to min so it opens at the expected height.
       didAutoSizeRef.current = true;
 
       // If the current window is already smaller than min (can happen after config changes),

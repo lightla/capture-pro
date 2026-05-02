@@ -126,7 +126,7 @@ fn set_main_min_size_value(min_w: f64, min_h: f64) {
 }
 
 #[tauri::command]
-fn set_main_min_size(app: tauri::AppHandle, min_w: f64, min_h: f64) -> Result<(), String> {
+fn set_main_min_size(app: tauri::AppHandle, min_w: f64, min_h: f64, snap: Option<bool>) -> Result<(), String> {
     set_main_min_size_value(min_w, min_h);
     let main = app
         .get_webview_window("main")
@@ -135,13 +135,19 @@ fn set_main_min_size(app: tauri::AppHandle, min_w: f64, min_h: f64) -> Result<()
     main.set_min_size(Some(tauri::LogicalSize::new(w, h)))
         .map_err(|e| e.to_string())?;
 
-    // Only snap up when the window is currently below min; do not block enlarging.
-    let Ok(scale) = main.scale_factor() else { return Ok(()) };
-    let Ok(size) = main.outer_size() else { return Ok(()) };
-    let logical_w = size.width as f64 / scale;
-    let logical_h = size.height as f64 / scale;
-    if logical_w + 0.5 < w || logical_h + 0.5 < h {
-        enforce_main_min_size(&main);
+    if snap.unwrap_or(false) {
+        // Open at exactly min.
+        main.set_size(tauri::LogicalSize::new(w, h))
+            .map_err(|e| e.to_string())?;
+    } else {
+        // Only snap up when the window is currently below min; do not block enlarging.
+        let Ok(scale) = main.scale_factor() else { return Ok(()) };
+        let Ok(size) = main.outer_size() else { return Ok(()) };
+        let logical_w = size.width as f64 / scale;
+        let logical_h = size.height as f64 / scale;
+        if logical_w + 0.5 < w || logical_h + 0.5 < h {
+            enforce_main_min_size(&main);
+        }
     }
     Ok(())
 }
