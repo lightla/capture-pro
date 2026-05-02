@@ -245,7 +245,7 @@ export function CaptureGallery() {
         <div style={s.emptyState}>
           <div style={{ fontSize: 40 }}>📷</div>
           <div style={{ fontSize: 14, fontWeight: 500, color: "#94a3b8" }}>No captures yet</div>
-          <div style={{ fontSize: 12 }}>Press Ctrl+Shift+Z to start capturing</div>
+          <div style={{ fontSize: 12 }}>Click Capture to start</div>
         </div>
       ) : (
         <div style={s.grid}>

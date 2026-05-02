@@ -9,6 +9,7 @@ export interface AppSettings {
   windowsSavePath: string;
   captureHotkey: string;
   pasteHotkey: string;
+  simulatePasteEnabled: boolean;
   clipboardMode: "paths" | "files";
   galleryMode: "all" | "focus";
 }
@@ -22,6 +23,7 @@ export const defaultSettings: AppSettings = {
   windowsSavePath: "",
   captureHotkey: "Ctrl+Shift+Z",
   pasteHotkey: "Ctrl+Shift+V",
+  simulatePasteEnabled: true,
   clipboardMode: "paths",
   galleryMode: "all",
 };

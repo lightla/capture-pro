@@ -62,6 +62,156 @@ fn set_exclude_from_capture(window: &tauri::WebviewWindow, exclude: bool) {
 
 static ALLOW_EXIT: AtomicBool = AtomicBool::new(false);
 static MAIN_IS_DOCKED: AtomicBool = AtomicBool::new(false);
+static HOTKEY_RECORDING: AtomicBool = AtomicBool::new(false);
+
+#[derive(Clone)]
+struct Hotkeys {
+    capture: Shortcut,
+    simulate_paste: Option<Shortcut>,
+}
+
+static HOTKEYS: OnceLock<Mutex<Hotkeys>> = OnceLock::new();
+
+fn get_hotkeys() -> Hotkeys {
+    HOTKEYS
+        .get()
+        .and_then(|m| m.lock().ok().map(|g| g.clone()))
+        .unwrap_or(Hotkeys {
+            capture: Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyZ),
+            simulate_paste: Some(Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyV)),
+        })
+}
+
+fn set_hotkeys_value(value: Hotkeys) {
+    let mutex = HOTKEYS.get_or_init(|| Mutex::new(get_hotkeys()));
+    if let Ok(mut guard) = mutex.lock() {
+        *guard = value;
+    }
+}
+
+fn parse_shortcut(s: &str) -> Result<Shortcut, String> {
+    let raw = s.trim();
+    if raw.is_empty() {
+        return Err("Hotkey cannot be empty".to_string());
+    }
+
+    let parts: Vec<&str> = raw
+        .split('+')
+        .map(|p| p.trim())
+        .filter(|p| !p.is_empty())
+        .collect();
+    if parts.is_empty() {
+        return Err("Invalid hotkey".to_string());
+    }
+
+    let mut mods = Modifiers::empty();
+    let mut key_part: Option<&str> = None;
+    for p in parts {
+        let lower = p.to_ascii_lowercase();
+        match lower.as_str() {
+            "ctrl" | "control" => mods |= Modifiers::CONTROL,
+            "shift" => mods |= Modifiers::SHIFT,
+            "alt" => mods |= Modifiers::ALT,
+            "meta" | "cmd" | "command" | "super" | "win" | "windows" => mods |= Modifiers::META,
+            _ => {
+                if key_part.is_some() {
+                    return Err("Hotkey must contain exactly one non-modifier key".to_string());
+                }
+                key_part = Some(p);
+            }
+        }
+    }
+
+    let key = key_part.ok_or_else(|| "Hotkey must include a key".to_string())?;
+    let key_upper = key.trim().to_ascii_uppercase();
+    let code = match key_upper.as_str() {
+        "A" => Code::KeyA,
+        "B" => Code::KeyB,
+        "C" => Code::KeyC,
+        "D" => Code::KeyD,
+        "E" => Code::KeyE,
+        "F" => Code::KeyF,
+        "G" => Code::KeyG,
+        "H" => Code::KeyH,
+        "I" => Code::KeyI,
+        "J" => Code::KeyJ,
+        "K" => Code::KeyK,
+        "L" => Code::KeyL,
+        "M" => Code::KeyM,
+        "N" => Code::KeyN,
+        "O" => Code::KeyO,
+        "P" => Code::KeyP,
+        "Q" => Code::KeyQ,
+        "R" => Code::KeyR,
+        "S" => Code::KeyS,
+        "T" => Code::KeyT,
+        "U" => Code::KeyU,
+        "V" => Code::KeyV,
+        "W" => Code::KeyW,
+        "X" => Code::KeyX,
+        "Y" => Code::KeyY,
+        "Z" => Code::KeyZ,
+        "0" => Code::Digit0,
+        "1" => Code::Digit1,
+        "2" => Code::Digit2,
+        "3" => Code::Digit3,
+        "4" => Code::Digit4,
+        "5" => Code::Digit5,
+        "6" => Code::Digit6,
+        "7" => Code::Digit7,
+        "8" => Code::Digit8,
+        "9" => Code::Digit9,
+        "F1" => Code::F1,
+        "F2" => Code::F2,
+        "F3" => Code::F3,
+        "F4" => Code::F4,
+        "F5" => Code::F5,
+        "F6" => Code::F6,
+        "F7" => Code::F7,
+        "F8" => Code::F8,
+        "F9" => Code::F9,
+        "F10" => Code::F10,
+        "F11" => Code::F11,
+        "F12" => Code::F12,
+        _ => return Err(format!("Unsupported key '{}'", key)),
+    };
+
+    Ok(Shortcut::new(if mods.is_empty() { None } else { Some(mods) }, code))
+}
+
+#[tauri::command]
+fn set_hotkeys(
+    app: tauri::AppHandle,
+    capture: String,
+    simulate: String,
+    enable_simulate: Option<bool>,
+) -> Result<(), String> {
+    let capture_sc = parse_shortcut(&capture)?;
+    let simulate_sc = parse_shortcut(&simulate)?;
+    let enable_sim = enable_simulate.unwrap_or(true);
+
+    let prev = get_hotkeys();
+    let gs = app.global_shortcut();
+    let _ = gs.unregister(prev.capture);
+    if let Some(prev_sim) = prev.simulate_paste {
+        let _ = gs.unregister(prev_sim);
+    }
+
+    gs.register(capture_sc).map_err(|e| format!("Failed to register Capture hotkey: {:?}", e))?;
+    let mut simulate_opt = None;
+    if enable_sim {
+        gs.register(simulate_sc).map_err(|e| format!("Failed to register Simulate hotkey: {:?}", e))?;
+        simulate_opt = Some(simulate_sc);
+    }
+
+    set_hotkeys_value(Hotkeys { capture: capture_sc, simulate_paste: simulate_opt });
+    Ok(())
+}
+
+#[tauri::command]
+fn set_hotkey_recording(value: bool) {
+    HOTKEY_RECORDING.store(value, Ordering::SeqCst);
+}
 
 #[derive(Clone, Debug, Default)]
 struct LastCapture {
@@ -455,10 +605,10 @@ fn enforce_main_min_size(window: &tauri::WebviewWindow) {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let hotkey = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyZ);
-    let paste_hotkey = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyV);
-    // Fallback hotkey to help debug/report collisions with Ctrl+Shift+V on some systems/apps.
-    let paste_hotkey_alt = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::ALT), Code::KeyV);
+    set_hotkeys_value(Hotkeys {
+        capture: Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyZ),
+        simulate_paste: Some(Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyV)),
+    });
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
@@ -471,8 +621,15 @@ pub fn run() {
                     return;
                 }
 
-                if shortcut == &hotkey {
-                    eprintln!("[CaptureProKey] Ctrl+Shift+Z triggered");
+                // While the UI is recording a new hotkey, ignore global shortcut actions
+                // so typing Ctrl+Shift+Z doesn't trigger capture.
+                if HOTKEY_RECORDING.load(Ordering::SeqCst) {
+                    return;
+                }
+
+                let hk = get_hotkeys();
+                if shortcut == &hk.capture {
+                    eprintln!("[CaptureProKey] Capture hotkey triggered");
                     if let Some(overlay) = app.get_webview_window("overlay") {
                         let is_visible = overlay.is_visible().unwrap_or(false);
                         if is_visible {
@@ -487,10 +644,10 @@ pub fn run() {
                     return;
                 }
 
-                if shortcut == &paste_hotkey || shortcut == &paste_hotkey_alt {
+                if hk.simulate_paste.as_ref().is_some_and(|s| shortcut == s) {
                     #[cfg(target_os = "windows")]
                     {
-                        eprintln!("[CaptureProKey] Paste hotkey triggered ({:?})", shortcut);
+                        eprintln!("[CaptureProKey] Simulate hotkey triggered ({:?})", shortcut);
                         let app = app.clone();
                         tauri::async_runtime::spawn(async move {
                             let state = app.state::<ClipboardState>();
@@ -766,17 +923,16 @@ pub fn run() {
                 std::mem::forget(tray);
             }
 
-            match app.global_shortcut().register(hotkey) {
-                Ok(_) => eprintln!("[CaptureProKey] Shortcut Ctrl+Shift+Z registered OK"),
-                Err(e) => eprintln!("[CaptureProKey] FAILED to register shortcut: {:?}", e),
+            let hk = get_hotkeys();
+            match app.global_shortcut().register(hk.capture) {
+                Ok(_) => eprintln!("[CaptureProKey] Capture hotkey registered OK"),
+                Err(e) => eprintln!("[CaptureProKey] FAILED to register Capture hotkey: {:?}", e),
             }
-            match app.global_shortcut().register(paste_hotkey) {
-                Ok(_) => eprintln!("[CaptureProKey] Shortcut Ctrl+Shift+V registered OK"),
-                Err(e) => eprintln!("[CaptureProKey] FAILED to register paste shortcut: {:?}", e),
-            }
-            match app.global_shortcut().register(paste_hotkey_alt) {
-                Ok(_) => eprintln!("[CaptureProKey] Shortcut Ctrl+Alt+V registered OK"),
-                Err(e) => eprintln!("[CaptureProKey] FAILED to register Ctrl+Alt+V: {:?}", e),
+            if let Some(sim) = hk.simulate_paste {
+                match app.global_shortcut().register(sim) {
+                    Ok(_) => eprintln!("[CaptureProKey] Simulate hotkey registered OK"),
+                    Err(e) => eprintln!("[CaptureProKey] FAILED to register Simulate hotkey: {:?}", e),
+                }
             }
             Ok(())
         })
@@ -816,6 +972,8 @@ pub fn run() {
             show_main_window_user,
             toggle_dock_main_right,
             set_main_min_size,
+            set_hotkeys,
+            set_hotkey_recording,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

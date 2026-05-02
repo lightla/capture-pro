@@ -50,6 +50,10 @@ export function WslBrowserModal({ onClose }: { onClose: () => void }) {
   const [winDirs, setWinDirs] = useState<string[]>([]);
   const [winLoading, setWinLoading] = useState(false);
   const [clipMode, setClipMode] = useState<"paths"|"files">(cfg.clipboardMode || "paths");
+  const [captureHotkey, setCaptureHotkey] = useState(cfg.captureHotkey || "Ctrl+Shift+Z");
+  const [simulateHotkey, setSimulateHotkey] = useState(cfg.pasteHotkey || "Ctrl+Shift+V");
+  const [simulateEnabled, setSimulateEnabled] = useState(cfg.simulatePasteEnabled ?? true);
+  const [recording, setRecording] = useState<null | "capture" | "simulate">(null);
   const [error, setError] = useState("");
   const [systemPickBusy, setSystemPickBusy] = useState(false);
   const [showDistroMenu, setShowDistroMenu] = useState(false);
@@ -57,6 +61,56 @@ export function WslBrowserModal({ onClose }: { onClose: () => void }) {
 
   const BTN_BORDER = "#cbd5e1";
   const BTN_BG = "#f8fafc";
+
+  const formatHotkeyFromEvent = (e: KeyboardEvent): string | null => {
+    const parts: string[] = [];
+    if (e.ctrlKey) parts.push("Ctrl");
+    if (e.shiftKey) parts.push("Shift");
+    if (e.altKey) parts.push("Alt");
+    if (e.metaKey) parts.push("Meta");
+
+    const key = (e.key || "").trim();
+    if (!key) return null;
+    if (key === "Control" || key === "Shift" || key === "Alt" || key === "Meta") return null;
+
+    let mainKey = "";
+    if (key.length === 1) {
+      const ch = key.toUpperCase();
+      if (/[A-Z0-9]/.test(ch)) mainKey = ch;
+    } else if (/^F\d{1,2}$/.test(key.toUpperCase())) {
+      mainKey = key.toUpperCase();
+    }
+
+    if (!mainKey) return null;
+    parts.push(mainKey);
+    return parts.join("+");
+  };
+
+  const setRecordingMode = (mode: null | "capture" | "simulate") => {
+    setRecording(mode);
+    invoke("set_hotkey_recording", { value: !!mode }).catch(() => {});
+  };
+
+  useEffect(() => {
+    if (!recording) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const hotkey = formatHotkeyFromEvent(e);
+      if (!hotkey) return;
+      if (recording === "capture") setCaptureHotkey(hotkey);
+      if (recording === "simulate") setSimulateHotkey(hotkey);
+      setRecordingMode(null);
+    };
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
+  }, [recording]);
+
+  useEffect(() => {
+    return () => {
+      invoke("set_hotkey_recording", { value: false }).catch(() => {});
+    };
+  }, []);
 
   const pickWindowsFolder = async (defaultPath: string | null) => {
     setSystemPickBusy(true);
@@ -203,13 +257,27 @@ export function WslBrowserModal({ onClose }: { onClose: () => void }) {
     else setWinPath(base + "\\" + dir);
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
+    setError("");
+
+    // Apply hotkeys first so any registration errors are shown before closing.
+    const ok = await invoke("set_hotkeys", { capture: captureHotkey, simulate: simulateHotkey, enableSimulate: simulateEnabled })
+      .then(() => true)
+      .catch((e) => {
+        setError(String(e || "Failed to register hotkeys"));
+        return false;
+      });
+    if (!ok) return;
+
     saveSettings({
       saveTarget,
       distro: saveTarget === "wsl" ? distro : "",
       savePath: saveTarget === "wsl" ? path : "",
       windowsSavePath: saveTarget === "windows" ? winNormalize(winPath) : "",
-      clipboardMode: clipMode
+      clipboardMode: clipMode,
+      captureHotkey,
+      pasteHotkey: simulateHotkey,
+      simulatePasteEnabled: simulateEnabled,
     });
     onClose();
   };
@@ -571,9 +639,97 @@ export function WslBrowserModal({ onClose }: { onClose: () => void }) {
             </div>
             {clipMode === "paths" && (
               <div style={{ marginTop: 6, fontSize: 11, color: "#64748b" }}>
-                <span style={{ fontFamily: "monospace" }}>Ctrl + Shift + V</span>: Simulates pasting files from the copied paths.
+                <span style={{ color: "#64748b" }}>Enable simulate paste from copied paths.</span>
+                <button
+                  type="button"
+                  onClick={() => setSimulateEnabled(v => !v)}
+                  style={{
+                    marginLeft: 8,
+                    height: 22,
+                    padding: "0 8px",
+                    borderRadius: 8,
+                    border: "1px solid #cbd5e1",
+                    background: "#f8fafc",
+                    cursor: "pointer",
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 6,
+                    color: "#334155",
+                    fontSize: 11,
+                  }}
+                  title="Enable/disable simulate paste hotkey"
+                >
+                  <span
+                    style={{
+                      width: 14,
+                      height: 14,
+                      borderRadius: 4,
+                      border: "1px solid #cbd5e1",
+                      background: simulateEnabled ? "#2563eb" : "white",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      color: "white",
+                      flexShrink: 0,
+                    }}
+                  >
+                    {simulateEnabled ? <Check size={11} /> : null}
+                  </span>
+                  Enabled
+                </button>
               </div>
             )}
+          </div>
+
+          {/* Hotkeys */}
+          <div>
+            <label style={L.label}>Hotkeys</label>
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: "#334155" }}>Capture</div>
+                <button
+                  type="button"
+                  onClick={() => setRecordingMode(recording === "capture" ? null : "capture")}
+                  style={{
+                    height: 38,
+                    padding: "0 12px",
+                    borderRadius: 10,
+                    border: "1px solid #cbd5e1",
+                    background: "white",
+                    fontSize: 12,
+                    fontFamily: "monospace",
+                    color: "#334155",
+                    cursor: "pointer",
+                    textAlign: "left",
+                  }}
+                >
+                  {recording === "capture" ? "Press keys..." : captureHotkey}
+                </button>
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: "#334155" }}>Simulate Paste</div>
+                <button
+                  type="button"
+                  disabled={!simulateEnabled || clipMode !== "paths"}
+                  onClick={() => setRecordingMode(recording === "simulate" ? null : "simulate")}
+                  style={{
+                    height: 38,
+                    padding: "0 12px",
+                    borderRadius: 10,
+                    border: "1px solid #cbd5e1",
+                    background: "white",
+                    fontSize: 12,
+                    fontFamily: "monospace",
+                    color: "#334155",
+                    cursor: (!simulateEnabled || clipMode !== "paths") ? "not-allowed" : "pointer",
+                    opacity: (!simulateEnabled || clipMode !== "paths") ? 0.55 : 1,
+                    textAlign: "left",
+                  }}
+                >
+                  {recording === "simulate" ? "Press keys..." : simulateHotkey}
+                </button>
+              </div>
+            </div>
           </div>
 
           {error && <div style={{ padding: "8px 12px", background: "#fef2f2", border: "1px solid #fecaca", color: "#dc2626", borderRadius: 8, fontSize: 12 }}>⚠️ {error}</div>}

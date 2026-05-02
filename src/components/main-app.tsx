@@ -433,7 +433,7 @@ export function MainApp() {
         {!isCompact && <div style={S.toolbarSep} />}
 
         <Btn icon={<Settings size={14} />} label="Settings" onClick={() => setShowSettings(true)} compact={isCompact} />
-        <Btn icon={<Camera size={14} />} label="Capture (Ctrl+Shift+Z)" onClick={handleCapture} primary compact={isCompact} />
+        <Btn icon={<Camera size={14} />} label="Capture" onClick={handleCapture} primary compact={isCompact} />
         <Btn
           icon={pinned ? <Pin size={14} /> : <PinOff size={14} />}
           label={pinned ? "Pinned" : "Pin"}
@@ -499,7 +499,7 @@ export function MainApp() {
         {!isCompact && <div style={S.toolbarSep} />}
 
         <Btn icon={<Copy size={13} />} label="Paths" onClick={handleCopyPaths} small disabled={files.length === 0} compact={isCompact} />
-        <Btn icon={<ImageIcon size={13} />} label="Files (Ctrl+C)" onClick={handleCopyFiles} small disabled={files.length === 0} compact={isCompact} />
+        <Btn icon={<ImageIcon size={13} />} label="Files" onClick={handleCopyFiles} small disabled={files.length === 0} compact={isCompact} />
 
         {!isCompact && <div style={S.toolbarSep} />}
         <IconBtn
@@ -546,7 +546,7 @@ export function MainApp() {
           <div style={S.emptyState}>
             <Camera size={36} style={{ color: "#cbd5e1", marginBottom: 12 }} />
             <div style={{ fontSize: 14, fontWeight: 500, color: "#64748b" }}>No captures yet</div>
-            <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 4 }}>Press Ctrl+Shift+Z or click Capture to start</div>
+            <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 4 }}>Click Capture to start</div>
             {missingSaveLocation && (
               <button onClick={() => setShowSettings(true)} style={{ marginTop: 12, padding: "8px 16px", borderRadius: 8, background: "#2563eb", color: "white", border: "none", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>
                 Configure Save Location
