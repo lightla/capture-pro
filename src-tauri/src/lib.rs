@@ -12,6 +12,7 @@ use tauri::Emitter;
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
+use std::sync::OnceLock;
 use settings_cache::{SettingsState};
 
 #[cfg(target_os = "windows")]
@@ -100,6 +101,49 @@ struct UiVisibilityState(Mutex<bool>); // true when user explicitly hid the app
 struct DockResult {
     docked: bool,
     always_on_top: bool,
+}
+
+const MAIN_MIN_WIDTH_DEFAULT: f64 = 800.0;
+const MAIN_MIN_HEIGHT_DEFAULT: f64 = 520.0;
+static MAIN_MIN_SIZE: OnceLock<Mutex<(f64, f64)>> = OnceLock::new();
+
+fn get_main_min_size() -> (f64, f64) {
+    MAIN_MIN_SIZE
+        .get()
+        .and_then(|m| m.lock().ok().map(|g| *g))
+        .unwrap_or((MAIN_MIN_WIDTH_DEFAULT, MAIN_MIN_HEIGHT_DEFAULT))
+}
+
+fn set_main_min_size_value(min_w: f64, min_h: f64) {
+    let (min_w, min_h) = (
+        min_w.max(320.0).min(4096.0),
+        min_h.max(320.0).min(4096.0),
+    );
+    let mutex = MAIN_MIN_SIZE.get_or_init(|| Mutex::new((MAIN_MIN_WIDTH_DEFAULT, MAIN_MIN_HEIGHT_DEFAULT)));
+    if let Ok(mut guard) = mutex.lock() {
+        *guard = (min_w, min_h);
+    }
+}
+
+#[tauri::command]
+fn set_main_min_size(app: tauri::AppHandle, min_w: f64, min_h: f64) -> Result<(), String> {
+    set_main_min_size_value(min_w, min_h);
+    let main = app
+        .get_webview_window("main")
+        .ok_or_else(|| "Main window not found".to_string())?;
+    let (w, h) = get_main_min_size();
+    main.set_min_size(Some(tauri::LogicalSize::new(w, h)))
+        .map_err(|e| e.to_string())?;
+
+    // Only snap up when the window is currently below min; do not block enlarging.
+    let Ok(scale) = main.scale_factor() else { return Ok(()) };
+    let Ok(size) = main.outer_size() else { return Ok(()) };
+    let logical_w = size.width as f64 / scale;
+    let logical_h = size.height as f64 / scale;
+    if logical_w + 0.5 < w || logical_h + 0.5 < h {
+        enforce_main_min_size(&main);
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -233,6 +277,9 @@ fn close_overlay(app: tauri::AppHandle) {
         if let Some(main) = app.get_webview_window("main") {
             #[cfg(target_os = "windows")]
             set_exclude_from_capture(&main, false);
+            if main.is_minimized().unwrap_or(false) {
+                let _ = main.unminimize();
+            }
             let _ = main.show();
             let _ = main.set_focus();
         }
@@ -274,6 +321,11 @@ fn show_main_window_user(app: tauri::AppHandle, state: tauri::State<'_, UiVisibi
         *hidden = false;
     }
     if let Some(w) = app.get_webview_window("main") {
+        // If the window is minimized, `show()` may not restore it on some platforms.
+        // Best-effort unminimize so taskbar/tray restore always works.
+        if w.is_minimized().unwrap_or(false) {
+            let _ = w.unminimize();
+        }
         let _ = w.show();
         let _ = w.set_focus();
     }
@@ -291,6 +343,11 @@ fn toggle_dock_main_right(
 
     if let Some(snapshot) = state.0.lock().map_err(|_| "Dock state lock failed".to_string())?.take() {
         let _ = main.set_resizable(true);
+        // Restore normal minimum size when undocking.
+        let (min_w, min_h) = get_main_min_size();
+        main
+            .set_min_size(Some(tauri::LogicalSize::new(min_w, min_h)))
+            .map_err(|e| e.to_string())?;
         main
             .set_position(snapshot.position)
             .map_err(|e| e.to_string())?;
@@ -355,6 +412,27 @@ fn toggle_dock_main_right(
         docked: true,
         always_on_top: true,
     })
+}
+
+fn enforce_main_min_size(window: &tauri::WebviewWindow) {
+    let (min_w_logical, min_h_logical) = get_main_min_size();
+    // Re-apply min size at the native layer in case it was reset by some code path.
+    let _ = window.set_min_size(Some(tauri::LogicalSize::new(min_w_logical, min_h_logical)));
+    let Ok(scale) = window.scale_factor() else { return };
+    let Ok(size) = window.outer_size() else { return };
+    let logical_w = size.width as f64 / scale;
+    let logical_h = size.height as f64 / scale;
+
+    if logical_w + 0.5 >= min_w_logical && logical_h + 0.5 >= min_h_logical {
+        return;
+    }
+
+    let min_w = (min_w_logical * scale).ceil().max(1.0) as u32;
+    let min_h = (min_h_logical * scale).ceil().max(1.0) as u32;
+    let _ = window.set_size(tauri::PhysicalSize::new(
+        size.width.max(min_w),
+        size.height.max(min_h),
+    ));
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -583,11 +661,27 @@ pub fn run() {
 
             // Close behavior: clicking X should exit the process (graceful shutdown).
             if let Some(main) = app.get_webview_window("main") {
+                // Ensure a baseline min size exists immediately (frontend will override via set_main_min_size).
+                set_main_min_size_value(MAIN_MIN_WIDTH_DEFAULT, MAIN_MIN_HEIGHT_DEFAULT);
+                let (w, h) = get_main_min_size();
+                let _ = main.set_min_size(Some(tauri::LogicalSize::new(w, h)));
+
+                let main_for_event = main.clone();
                 main.on_window_event(move |event| {
                     if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                         // Allow the close request to proceed.
                         ALLOW_EXIT.store(true, Ordering::SeqCst);
                         let _ = api;
+                    }
+
+                    if let tauri::WindowEvent::Resized(_) = event {
+                        // Hard-enforce min size on Windows; some resize paths can bypass min constraints.
+                        enforce_main_min_size(&main_for_event);
+                    }
+
+                    if let tauri::WindowEvent::Moved(_) = event {
+                        // Some Windows snap/drag paths can adjust size without a Resized event.
+                        enforce_main_min_size(&main_for_event);
                     }
                 });
             }
@@ -616,6 +710,9 @@ pub fn run() {
                                     }
                                 }
                                 if let Some(main) = app.get_webview_window("main") {
+                                    if main.is_minimized().unwrap_or(false) {
+                                        let _ = main.unminimize();
+                                    }
                                     let _ = main.show();
                                     let _ = main.set_focus();
                                 }
@@ -637,6 +734,9 @@ pub fn run() {
                         if matches!(event, tauri::tray::TrayIconEvent::DoubleClick { .. }) {
                             let app = tray.app_handle();
                             if let Some(main) = app.get_webview_window("main") {
+                                if main.is_minimized().unwrap_or(false) {
+                                    let _ = main.unminimize();
+                                }
                                 let _ = main.show();
                                 let _ = main.set_focus();
                             }
@@ -697,6 +797,7 @@ pub fn run() {
             hide_main_window_user,
             show_main_window_user,
             toggle_dock_main_right,
+            set_main_min_size,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -556,7 +556,7 @@ export function WslBrowserModal({ onClose }: { onClose: () => void }) {
 
           {/* Clipboard mode */}
           <div>
-            <label style={L.label}>Clipboard Mode (after capture)</label>
+            <label style={L.label}>Clipboard Storage</label>
             <div style={{ display: "flex", gap: 8 }}>
               {(["paths", "files"] as const).map(mode => (
                 <button key={mode} onClick={() => setClipMode(mode)} style={{
@@ -569,6 +569,11 @@ export function WslBrowserModal({ onClose }: { onClose: () => void }) {
                 </button>
               ))}
             </div>
+            {clipMode === "paths" && (
+              <div style={{ marginTop: 6, fontSize: 11, color: "#64748b" }}>
+                <span style={{ fontFamily: "monospace" }}>Ctrl + Shift + V</span>: Simulates pasting files from the copied paths.
+              </div>
+            )}
           </div>
 
           {error && <div style={{ padding: "8px 12px", background: "#fef2f2", border: "1px solid #fecaca", color: "#dc2626", borderRadius: 8, fontSize: 12 }}>⚠️ {error}</div>}

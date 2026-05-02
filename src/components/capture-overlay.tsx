@@ -8,11 +8,9 @@ interface PhysicalRect { x: number; y: number; width: number; height: number; }
 
 type DragMode = "none" | "select" | "move" | "resize-nw" | "resize-ne" | "resize-sw" | "resize-se" | "resize-n" | "resize-s" | "resize-w" | "resize-e";
 
-const HANDLE_SIZE = 10;
 const HANDLE_HIT = 14;
 
 // Bright selection blue (better contrast on dark mask) — slightly toned down.
-const V1_BLUE = "rgba(96,165,250,0.98)"; // #60a5fa (slightly brighter)
 const V1_BLUE_SOLID = "rgba(96,165,250,1)";
 
 declare global {

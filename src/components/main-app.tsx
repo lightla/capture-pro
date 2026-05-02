@@ -24,11 +24,18 @@ interface DockResult {
 
 const COMPACT_WIDTH = 210;
 const COMPACT_HEIGHT = 640;
-const COMPACT_BREAKPOINT = 700;
-const COMPACT_TWO_COL_WIDTH = 520;
-const DOCK_GRID_BREAKPOINT = 560;
-const DOCK_ONE_COL_BREAKPOINT = 430;
 const DOCK_CARD_WIDTH = 180;
+const NORMAL_MIN_WIDTH = 800;
+const THUMB_CARD_HEIGHT = 128;
+const THUMB_IMAGE_HEIGHT = 100;
+const THUMB_GRID_GAP = 10;
+const THUMB_GRID_PAD_TOP = 14;
+const THUMB_GRID_PAD_BOTTOM = THUMB_GRID_GAP;
+const THUMB_GRID_PAD_X = 14;
+const THUMB_MIN_GALLERY_HEIGHT =
+  THUMB_GRID_PAD_TOP + 3 * THUMB_CARD_HEIGHT + 2 * THUMB_GRID_GAP + THUMB_GRID_PAD_BOTTOM;
+const THUMB_BOTTOM_SAFE_SPACE = 2;
+const THUMB_MIN_HEIGHT_EXTRA_SPACE = 0;
 
 // ── Main App ─────────────────────────────────────────────────────────────────
 export function MainApp() {
@@ -44,15 +51,20 @@ export function MainApp() {
   const [preview, setPreview] = useState<CaptureFile | null>(null);
   const [status, setStatus] = useState("Ready.");
   const [reloadNonce, setReloadNonce] = useState(0);
-  const [windowWidth, setWindowWidth] = useState(() => window.innerWidth);
   const [dockMode, setDockMode] = useState(false);
   const [dockColumns, setDockColumns] = useState<1 | 2>(2);
   const [showDockMenu, setShowDockMenu] = useState(false);
+  const toolbarRef = useRef<HTMLDivElement | null>(null);
+  const galleryBarRef = useRef<HTMLDivElement | null>(null);
+  const statusBarRef = useRef<HTMLDivElement | null>(null);
+  const galleryAreaRef = useRef<HTMLDivElement | null>(null);
+  const didAutoSizeRef = useRef(false);
+  const lastSentMinRef = useRef<{ w: number; h: number } | null>(null);
   const settings = loadSettings();
   const galleryMode = settings.galleryMode || "all";
-  const isCompact = dockMode || windowWidth <= COMPACT_BREAKPOINT;
-  const useDockGrid = dockMode || windowWidth <= DOCK_GRID_BREAKPOINT;
-  const dockGridColumns = dockMode ? dockColumns : (windowWidth <= DOCK_ONE_COL_BREAKPOINT ? 1 : 2);
+  const isCompact = dockMode;
+  const useDockGrid = dockMode;
+  const dockGridColumns = dockMode ? dockColumns : 2;
   const missingSaveLocation = settings.saveTarget === "windows"
     ? !settings.windowsSavePath
     : (!settings.distro || !settings.savePath);
@@ -128,11 +140,80 @@ export function MainApp() {
   useEffect(() => { syncSettingsCache(); }, [syncSettingsCache]);
   useEffect(() => {
     const appWindow = getCurrentWindow();
-    appWindow.setMinSize(new LogicalSize(COMPACT_WIDTH, COMPACT_HEIGHT)).catch(() => {});
-    const onResize = () => setWindowWidth(window.innerWidth);
+    // No auto-compact based on width; only dock mode uses compact sizing.
+    const minW = dockMode ? COMPACT_WIDTH : NORMAL_MIN_WIDTH;
+
+    let raf1 = 0;
+    let raf2 = 0;
+
+    const setMin = async () => {
+      if (dockMode) {
+        appWindow.setMinSize(new LogicalSize(minW, COMPACT_HEIGHT)).catch(() => {});
+        didAutoSizeRef.current = false;
+        return;
+      }
+
+      if (viewMode !== "thumbnail") {
+        appWindow.setMinSize(new LogicalSize(minW, 520)).catch(() => {});
+        didAutoSizeRef.current = false;
+        return;
+      }
+
+      // Inner height needed: toolbar + gallery bar + exactly 3 thumbnail rows + status bar.
+      const toolbarH = toolbarRef.current?.getBoundingClientRect().height ?? 0;
+      const galleryBarH = galleryBarRef.current?.getBoundingClientRect().height ?? 0;
+      const statusH = statusBarRef.current?.getBoundingClientRect().height ?? 0;
+
+      const grid = galleryAreaRef.current?.querySelector("[data-thumb-grid='1']") as HTMLElement | null;
+      if (!grid) return;
+
+      const requiredGalleryInnerH = THUMB_MIN_GALLERY_HEIGHT + THUMB_BOTTOM_SAFE_SPACE;
+      const requiredMinH = Math.ceil(toolbarH + galleryBarH + requiredGalleryInnerH + statusH);
+
+      // Tauri min size uses the window size in logical pixels; avoid unreliable outer/inner chrome math.
+      appWindow.setMinSize(new LogicalSize(minW, requiredMinH)).catch(() => {});
+      // Backend hard-enforces min size; keep it in sync. Avoid calling repeatedly with the same values,
+      // because some backends may also snap size on update.
+      const last = lastSentMinRef.current;
+      if (!last || last.w !== minW || last.h !== requiredMinH) {
+        lastSentMinRef.current = { w: minW, h: requiredMinH };
+        invoke("set_main_min_size", { minW, minH: requiredMinH }).catch(() => {});
+      }
+      // First time entering thumbnail mode, allow backend to snap up if the current size is below min.
+      didAutoSizeRef.current = true;
+
+      // If the current window is already smaller than min (can happen after config changes),
+      // force it up once so the UI doesn't start clipped.
+      const [curSize, scaleFactor] = await Promise.all([
+        appWindow.outerSize().catch(() => null),
+        appWindow.scaleFactor().catch(() => window.devicePixelRatio || 1),
+      ]);
+      const scale = scaleFactor || 1;
+      const curW = curSize ? curSize.width / scale : (window.outerWidth || minW);
+      const curH = curSize ? curSize.height / scale : (window.outerHeight || requiredMinH);
+      if (curH + 1 < requiredMinH || curW + 1 < minW) {
+        appWindow.setSize(new LogicalSize(Math.max(minW, curW), Math.max(requiredMinH, curH))).catch(() => {});
+      }
+    };
+
+    const schedule = () => {
+      if (raf1) cancelAnimationFrame(raf1);
+      if (raf2) cancelAnimationFrame(raf2);
+      raf1 = requestAnimationFrame(() => {
+        raf2 = requestAnimationFrame(() => { void setMin(); });
+      });
+    };
+
+    schedule();
+    const onResize = () => schedule();
     window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
-  }, []);
+
+    return () => {
+      window.removeEventListener("resize", onResize);
+      if (raf1) cancelAnimationFrame(raf1);
+      if (raf2) cancelAnimationFrame(raf2);
+    };
+  }, [dockMode, viewMode, files.length]);
 
   // Toasts from backend (e.g. missing save folder when user triggers Capture via hotkey/menu).
   useEffect(() => {
@@ -245,7 +326,6 @@ export function MainApp() {
     setPinned(result.alwaysOnTop);
     setDockMode(result.docked);
     setShowDockMenu(false);
-    if (result.docked) setWindowWidth(columns === 1 ? COMPACT_WIDTH : COMPACT_TWO_COL_WIDTH);
   };
 
   const handleDelete = async () => {
@@ -336,7 +416,7 @@ export function MainApp() {
   return (
     <div style={S.root}>
       {/* ── Top Toolbar ─────────────────────────────────────────────────── */}
-      <div style={{ ...S.toolbar, gap: isCompact ? 4 : 6, padding: isCompact ? "8px 10px" : "8px 12px" }}>
+      <div ref={toolbarRef} style={{ ...S.toolbar, gap: isCompact ? 4 : 6, padding: isCompact ? "8px 10px" : "8px 12px" }}>
         {!dockMode && (
           <div style={S.logo}>
           <Camera style={{ width: 16, height: 16, color: "#bae6fd" }} />
@@ -400,7 +480,7 @@ export function MainApp() {
       </div>
 
       {/* ── Gallery Toolbar ──────────────────────────────────────────────── */}
-      <div style={{ ...S.galleryBar, gap: isCompact ? 4 : 6, padding: isCompact ? "6px 10px" : "6px 12px" }}>
+      <div ref={galleryBarRef} style={{ ...S.galleryBar, gap: isCompact ? 4 : 6, padding: isCompact ? "6px 10px" : "6px 12px" }}>
         {!isCompact && <span style={S.galleryLabel}>Captures</span>}
         {galleryMode !== "focus" && (
           <IconBtn
@@ -455,7 +535,7 @@ export function MainApp() {
       </div>
 
       {/* ── Gallery Content ──────────────────────────────────────────────── */}
-      <div style={S.galleryArea}>
+      <div ref={galleryAreaRef} style={S.galleryArea}>
         {files.length === 0 ? (
           <div style={S.emptyState}>
             <Camera size={36} style={{ color: "#cbd5e1", marginBottom: 12 }} />
@@ -520,7 +600,7 @@ export function MainApp() {
       </div>
 
       {/* ── Status Bar ──────────────────────────────────────────────────── */}
-      <div style={{ ...S.statusBar, minHeight: isCompact ? 22 : 28, padding: isCompact ? "4px 10px" : "5px 14px" }}>
+      <div ref={statusBarRef} style={{ ...S.statusBar, minHeight: isCompact ? 22 : 28, padding: isCompact ? "4px 10px" : "5px 14px" }}>
         {!isCompact && <span style={{ color: "#64748b", fontSize: 11 }}>{status}</span>}
         {!isCompact && someSelected && (
           <span style={{ marginLeft: "auto", color: "#3b82f6", fontSize: 11, fontWeight: 600 }}>
@@ -687,9 +767,10 @@ function ThumbnailGrid({ files, compact, dockGridColumns, selected, onItemClick,
 
   return (
     <div
+      data-thumb-grid="1"
       ref={containerRef}
       onMouseDown={onMouseDown}
-      style={{ position: "relative", display: "grid", gridTemplateColumns: compact ? (dockGridColumns === 1 ? `${DOCK_CARD_WIDTH}px` : "repeat(2, minmax(0, 1fr))") : "repeat(auto-fill, minmax(150px, 1fr))", gap: compact ? 8 : 10, padding: compact ? 10 : 14, width: "100%", minHeight: "100%", alignContent: "start", justifyContent: compact && dockGridColumns === 1 ? "center" : "start", boxSizing: "border-box" }}
+      style={{ position: "relative", display: "grid", gridTemplateColumns: compact ? (dockGridColumns === 1 ? `${DOCK_CARD_WIDTH}px` : "repeat(2, minmax(0, 1fr))") : "repeat(auto-fill, minmax(150px, 1fr))", gap: compact ? 8 : THUMB_GRID_GAP, paddingTop: compact ? 10 : THUMB_GRID_PAD_TOP, paddingLeft: compact ? 10 : THUMB_GRID_PAD_X, paddingRight: compact ? 10 : THUMB_GRID_PAD_X, paddingBottom: compact ? 10 : THUMB_GRID_PAD_BOTTOM + THUMB_BOTTOM_SAFE_SPACE, width: "100%", minHeight: compact ? "100%" : THUMB_MIN_GALLERY_HEIGHT + THUMB_BOTTOM_SAFE_SPACE, alignContent: "start", alignItems: "start", justifyContent: compact && dockGridColumns === 1 ? "center" : "start", boxSizing: "border-box" }}
     >
       {band && (
         <div
@@ -723,6 +804,7 @@ function ThumbnailGrid({ files, compact, dockGridColumns, selected, onItemClick,
               boxShadow: isSel ? "0 0 0 3px rgba(59,130,246,0.15)" : "0 1px 3px rgba(0,0,0,0.06)",
               transition: "all 0.12s ease",
               position: "relative",
+              boxSizing: "border-box",
             }}
           >
             {isSel && (
@@ -730,7 +812,7 @@ function ThumbnailGrid({ files, compact, dockGridColumns, selected, onItemClick,
                 <svg width="10" height="10" viewBox="0 0 10 10"><path d="M2 5l2 2 4-4" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" fill="none" /></svg>
               </div>
             )}
-            <div style={{ height: 100, background: "#f8fafc", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
+            <div style={{ height: THUMB_IMAGE_HEIGHT, background: "#f8fafc", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
               {f.thumbnail
                 ? <img src={f.thumbnail} alt={f.name} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
                 : <ImageIcon size={24} style={{ color: "#e2e8f0" }} />
@@ -1027,17 +1109,17 @@ function IconBtn({ icon, title, onClick, activeStyle }: {
 
 const S: Record<string, React.CSSProperties> = {
   root: { display: "flex", flexDirection: "column", height: "100vh", background: "#f8fafc", fontFamily: "system-ui, sans-serif", overflow: "hidden" },
-  toolbar: { display: "flex", alignItems: "center", gap: 6, padding: "8px 12px", background: "white", borderBottom: "1px solid #e8edf3", boxShadow: "0 1px 4px rgba(0,0,0,0.05)" },
+  toolbar: { display: "flex", alignItems: "center", gap: 6, padding: "8px 12px", background: "white", borderBottom: "1px solid #e8edf3", boxShadow: "0 1px 4px rgba(0,0,0,0.05)", flexShrink: 0 },
   logo: { width: 30, height: 30, borderRadius: 8, background: "linear-gradient(135deg, #3b82f6, #2563eb)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 },
   logoText: { fontSize: 14, fontWeight: 700, color: "#1e293b", marginRight: 4 },
   toolbarSep: { width: 1, height: 20, background: "#e8edf3", margin: "0 2px" },
   hotkey: { display: "none", fontSize: 11, color: "#94a3b8", background: "#f1f5f9", borderRadius: 6, padding: "4px 8px", border: "1px solid #e2e8f0" },
-  galleryBar: { display: "flex", alignItems: "center", gap: 6, padding: "6px 12px", background: "#fafbfc", borderBottom: "1px solid #e8edf3" },
+  galleryBar: { display: "flex", alignItems: "center", gap: 6, padding: "6px 12px", background: "#fafbfc", borderBottom: "1px solid #e8edf3", flexShrink: 0 },
   galleryLabel: { fontSize: 12, fontWeight: 600, color: "#374151", marginRight: 2 },
   iconBtn: { width: 32, height: 32, borderRadius: 8, border: "1px solid #cbd5e1", background: "#f8fafc", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: "#64748b", flexShrink: 0, transition: "all 0.12s ease", outline: "none", boxShadow: "none" },
-  galleryArea: { flex: 1, overflowY: "auto" },
+  galleryArea: { flex: 1, overflowY: "auto", minHeight: 0 },
   emptyState: { display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100%", padding: 40 },
-  statusBar: { display: "flex", alignItems: "center", padding: "5px 14px", background: "white", borderTop: "1px solid #e8edf3", minHeight: 28 },
+  statusBar: { display: "flex", alignItems: "center", padding: "5px 14px", background: "white", borderTop: "1px solid #e8edf3", minHeight: 28, flexShrink: 0 },
   modalBg: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 9999 },
   previewBox: { background: "white", borderRadius: 16, padding: 20, maxWidth: "80vw", maxHeight: "90vh", display: "flex", flexDirection: "column", boxShadow: "0 20px 60px rgba(0,0,0,0.3)", overflow: "auto" },
   closeBtn: { width: 32, height: 32, borderRadius: 8, border: "1px solid #cbd5e1", background: "#f8fafc", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: "#64748b", flexShrink: 0, transition: "all 0.12s ease", outline: "none", boxShadow: "none" },
