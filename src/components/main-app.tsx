@@ -286,10 +286,16 @@ export function MainApp() {
       });
     } else {
       // Single click — preview
-      setPreview(file);
-      loadThumb(file);
+      setPreview(null);
+      setSelected(new Set([file.path]));
+      setLastSelected(file.path);
     }
   }, [files, lastSelected, loadThumb]);
+
+  const handleItemDoubleClick = useCallback((file: CaptureFile) => {
+    setPreview(file);
+    loadThumb(file);
+  }, [loadThumb]);
 
   // Actions
   const handleCapture = async () => {
@@ -427,7 +433,7 @@ export function MainApp() {
         {!isCompact && <div style={S.toolbarSep} />}
 
         <Btn icon={<Settings size={14} />} label="Settings" onClick={() => setShowSettings(true)} compact={isCompact} />
-        <Btn icon={<Camera size={14} />} label="Capture" onClick={handleCapture} primary compact={isCompact} />
+        <Btn icon={<Camera size={14} />} label="Capture (Ctrl+Shift+Z)" onClick={handleCapture} primary compact={isCompact} />
         <Btn
           icon={pinned ? <Pin size={14} /> : <PinOff size={14} />}
           label={pinned ? "Pinned" : "Pin"}
@@ -553,7 +559,6 @@ export function MainApp() {
             settings={settings}
             compact={isCompact}
             onLoadThumb={loadThumb}
-            onPreview={() => setPreview(files[0])}
             onDelete={async () => {
               const f = files[0];
               if (!f) return;
@@ -580,6 +585,7 @@ export function MainApp() {
             dockGridColumns={dockGridColumns}
             selected={selected}
             onItemClick={handleItemClick}
+            onItemDoubleClick={handleItemDoubleClick}
             onLoadThumb={loadThumb}
             onBandSelect={(next, last) => {
               setSelected(next);
@@ -591,6 +597,7 @@ export function MainApp() {
             files={files}
             selected={selected}
             onItemClick={handleItemClick}
+            onItemDoubleClick={handleItemDoubleClick}
             onBandSelect={(next, last) => {
               setSelected(next);
               if (last) setLastSelected(last);
@@ -688,12 +695,13 @@ export function MainApp() {
 
 // ── Sub-components ───────────────────────────────────────────────────────────
 
-function ThumbnailGrid({ files, compact, dockGridColumns, selected, onItemClick, onLoadThumb, onBandSelect }: {
+function ThumbnailGrid({ files, compact, dockGridColumns, selected, onItemClick, onItemDoubleClick, onLoadThumb, onBandSelect }: {
   files: CaptureFile[];
   compact: boolean;
   dockGridColumns: 1 | 2;
   selected: Set<string>;
   onItemClick: (f: CaptureFile, e: React.MouseEvent) => void;
+  onItemDoubleClick: (f: CaptureFile) => void;
   onLoadThumb: (f: CaptureFile) => void;
   onBandSelect: (next: Set<string>, lastSelected: string | null) => void;
 }) {
@@ -796,6 +804,7 @@ function ThumbnailGrid({ files, compact, dockGridColumns, selected, onItemClick,
             data-capture-card="1"
             data-capture-path={f.path}
             onClick={e => onItemClick(f, e)}
+            onDoubleClick={() => onItemDoubleClick(f)}
             onMouseEnter={() => onLoadThumb(f)}
             style={{
               borderRadius: 10, overflow: "hidden", cursor: "pointer",
@@ -828,12 +837,11 @@ function ThumbnailGrid({ files, compact, dockGridColumns, selected, onItemClick,
   );
 }
 
-function FocusView({ file, settings, compact, onLoadThumb, onPreview, onDelete }: {
+function FocusView({ file, settings, compact, onLoadThumb, onDelete }: {
   file: CaptureFile;
   settings: AppSettings;
   compact: boolean;
   onLoadThumb: (f: CaptureFile) => void;
-  onPreview: () => void;
   onDelete: () => void;
 }) {
   useEffect(() => {
@@ -853,13 +861,6 @@ function FocusView({ file, settings, compact, onLoadThumb, onPreview, onDelete }
         </div>
         <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
           <button
-            onClick={onPreview}
-            style={compact ? { width: 34, height: 34, borderRadius: 10, border: "1px solid #e2e8f0", background: "white", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: "#334155" } : { padding: "8px 12px", borderRadius: 10, border: "1px solid #e2e8f0", background: "white", cursor: "pointer", fontSize: 12, fontWeight: 600, color: "#334155" }}
-            title="Open preview"
-          >
-            {compact ? <ImageIcon size={15} /> : "Preview"}
-          </button>
-          <button
             onClick={onDelete}
             style={compact ? { width: 34, height: 34, borderRadius: 10, border: "1px solid #fecaca", background: "#fef2f2", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: "#b91c1c" } : { padding: "8px 12px", borderRadius: 10, border: "1px solid #fecaca", background: "#fef2f2", cursor: "pointer", fontSize: 12, fontWeight: 700, color: "#b91c1c" }}
             title="Delete latest capture"
@@ -870,16 +871,13 @@ function FocusView({ file, settings, compact, onLoadThumb, onPreview, onDelete }
       </div>
 
       <div
-        onClick={onPreview}
         style={{
           borderRadius: 14,
           border: "1px solid #e2e8f0",
           background: "white",
           boxShadow: "0 10px 30px rgba(0,0,0,0.08)",
           overflow: "hidden",
-          cursor: "pointer",
         }}
-        title="Click to preview"
       >
         <div style={{ height: "min(62vh, 640px)", background: "#f8fafc", display: "flex", alignItems: "center", justifyContent: "center" }}>
           {file.thumbnail ? (
@@ -896,10 +894,11 @@ function FocusView({ file, settings, compact, onLoadThumb, onPreview, onDelete }
   );
 }
 
-function ListView({ files, selected, onItemClick, onBandSelect }: {
+function ListView({ files, selected, onItemClick, onItemDoubleClick, onBandSelect }: {
   files: CaptureFile[];
   selected: Set<string>;
   onItemClick: (f: CaptureFile, e: React.MouseEvent) => void;
+  onItemDoubleClick: (f: CaptureFile) => void;
   onBandSelect: (next: Set<string>, lastSelected: string | null) => void;
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -1019,6 +1018,7 @@ function ListView({ files, selected, onItemClick, onBandSelect }: {
             key={f.path}
             data-capture-path={f.path}
             onClick={e => onItemClick(f, e)}
+            onDoubleClick={() => onItemDoubleClick(f)}
             style={{
               display: "flex", alignItems: "center", gap: 10,
               padding: "8px 12px", borderRadius: 8, cursor: "pointer",
