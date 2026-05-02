@@ -54,6 +54,10 @@ export function WslBrowserModal({ onClose }: { onClose: () => void }) {
   const [simulateHotkey, setSimulateHotkey] = useState(cfg.pasteHotkey || "Ctrl+Shift+V");
   const [simulateEnabled, setSimulateEnabled] = useState(cfg.simulatePasteEnabled ?? true);
   const [recording, setRecording] = useState<null | "capture" | "simulate">(null);
+  const recordingDraftRef = useRef<string | null>(null);
+  const [recordingDraft, setRecordingDraft] = useState<string | null>(null);
+  const hotkeysSuspendedRef = useRef(false);
+  const savedRef = useRef(false);
   const [error, setError] = useState("");
   const [systemPickBusy, setSystemPickBusy] = useState(false);
   const [showDistroMenu, setShowDistroMenu] = useState(false);
@@ -69,16 +73,36 @@ export function WslBrowserModal({ onClose }: { onClose: () => void }) {
     if (e.altKey) parts.push("Alt");
     if (e.metaKey) parts.push("Meta");
 
-    const key = (e.key || "").trim();
-    if (!key) return null;
-    if (key === "Control" || key === "Shift" || key === "Alt" || key === "Meta") return null;
+    // Prefer `code` so layout/language doesn't break capture (e.g. VN layout).
+    const code = (e.code || "").trim();
+    if (!code) return null;
+    if (code === "ControlLeft" || code === "ControlRight" || code === "ShiftLeft" || code === "ShiftRight" || code === "AltLeft" || code === "AltRight" || code === "MetaLeft" || code === "MetaRight") {
+      return null;
+    }
 
     let mainKey = "";
-    if (key.length === 1) {
-      const ch = key.toUpperCase();
-      if (/[A-Z0-9]/.test(ch)) mainKey = ch;
-    } else if (/^F\d{1,2}$/.test(key.toUpperCase())) {
-      mainKey = key.toUpperCase();
+    if (code.startsWith("Key") && code.length === 4) {
+      mainKey = code.slice(3).toUpperCase();
+    } else if (code.startsWith("Digit") && code.length === 6) {
+      mainKey = code.slice(5);
+    } else if (/^F\d{1,2}$/.test(code)) {
+      mainKey = code;
+    } else if (code.startsWith("Numpad") && code.length === 7) {
+      const n = code.slice(6);
+      if (/^\d$/.test(n)) mainKey = `Num${n}`;
+    }
+
+    // Fallback to `key` for any remaining supported single-char keys.
+    if (!mainKey) {
+      const key = (e.key || "").trim();
+      if (!key) return null;
+      if (key === "Control" || key === "Shift" || key === "Alt" || key === "Meta") return null;
+      if (key.length === 1) {
+        const ch = key.toUpperCase();
+        if (/[A-Z0-9]/.test(ch)) mainKey = ch;
+      } else if (/^F\d{1,2}$/.test(key.toUpperCase())) {
+        mainKey = key.toUpperCase();
+      }
     }
 
     if (!mainKey) return null;
@@ -86,29 +110,68 @@ export function WslBrowserModal({ onClose }: { onClose: () => void }) {
     return parts.join("+");
   };
 
-  const setRecordingMode = (mode: null | "capture" | "simulate") => {
+  const setRecordingMode = async (mode: null | "capture" | "simulate") => {
+    if (mode) {
+      if (!hotkeysSuspendedRef.current) {
+        hotkeysSuspendedRef.current = true;
+        await invoke("set_hotkey_recording", { value: true }).catch(() => {});
+      }
+    }
     setRecording(mode);
-    invoke("set_hotkey_recording", { value: !!mode }).catch(() => {});
+    // Ensure the webview has focus so keydown events are delivered while recording.
+    try { window.focus(); } catch {}
+    if (!mode) {
+      recordingDraftRef.current = null;
+      setRecordingDraft(null);
+    }
   };
 
   useEffect(() => {
     if (!recording) return;
+
+    // Focus the active webview so key events are delivered.
+    try { window.focus(); } catch {}
+
+    const commitIfReady = (e: KeyboardEvent) => {
+      // Commit when user released all modifiers (so holding Ctrl+Shift+Z works).
+      if (e.ctrlKey || e.shiftKey || e.altKey || e.metaKey) return;
+      const hk = recordingDraftRef.current;
+      if (!hk) return;
+      if (recording === "capture") setCaptureHotkey(hk);
+      if (recording === "simulate") setSimulateHotkey(hk);
+      setRecording(null);
+      recordingDraftRef.current = null;
+      setRecordingDraft(null);
+    };
+
     const onKeyDown = (e: KeyboardEvent) => {
       e.preventDefault();
       e.stopPropagation();
       const hotkey = formatHotkeyFromEvent(e);
       if (!hotkey) return;
-      if (recording === "capture") setCaptureHotkey(hotkey);
-      if (recording === "simulate") setSimulateHotkey(hotkey);
-      setRecordingMode(null);
+      recordingDraftRef.current = hotkey;
+      setRecordingDraft(hotkey);
     };
+
+    const onKeyUp = (e: KeyboardEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      commitIfReady(e);
+    };
+
     window.addEventListener("keydown", onKeyDown, true);
-    return () => window.removeEventListener("keydown", onKeyDown, true);
+    window.addEventListener("keyup", onKeyUp, true);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown, true);
+      window.removeEventListener("keyup", onKeyUp, true);
+    };
   }, [recording]);
 
   useEffect(() => {
     return () => {
-      invoke("set_hotkey_recording", { value: false }).catch(() => {});
+      if (!savedRef.current) {
+        invoke("restore_hotkeys").catch(() => {});
+      }
     };
   }, []);
 
@@ -279,6 +342,8 @@ export function WslBrowserModal({ onClose }: { onClose: () => void }) {
       pasteHotkey: simulateHotkey,
       simulatePasteEnabled: simulateEnabled,
     });
+    savedRef.current = true;
+    hotkeysSuspendedRef.current = false;
     onClose();
   };
 
@@ -689,7 +754,7 @@ export function WslBrowserModal({ onClose }: { onClose: () => void }) {
                 <div style={{ fontSize: 12, fontWeight: 600, color: "#334155" }}>Capture</div>
                 <button
                   type="button"
-                  onClick={() => setRecordingMode(recording === "capture" ? null : "capture")}
+                  onClick={() => { void setRecordingMode(recording === "capture" ? null : "capture"); }}
                   style={{
                     height: 38,
                     padding: "0 12px",
@@ -703,7 +768,7 @@ export function WslBrowserModal({ onClose }: { onClose: () => void }) {
                     textAlign: "left",
                   }}
                 >
-                  {recording === "capture" ? "Press keys..." : captureHotkey}
+                  {recording === "capture" ? (recordingDraft || "Press keys...") : captureHotkey}
                 </button>
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
@@ -711,7 +776,7 @@ export function WslBrowserModal({ onClose }: { onClose: () => void }) {
                 <button
                   type="button"
                   disabled={!simulateEnabled || clipMode !== "paths"}
-                  onClick={() => setRecordingMode(recording === "simulate" ? null : "simulate")}
+                  onClick={() => { void setRecordingMode(recording === "simulate" ? null : "simulate"); }}
                   style={{
                     height: 38,
                     padding: "0 12px",
@@ -726,7 +791,7 @@ export function WslBrowserModal({ onClose }: { onClose: () => void }) {
                     textAlign: "left",
                   }}
                 >
-                  {recording === "simulate" ? "Press keys..." : simulateHotkey}
+                  {recording === "simulate" ? (recordingDraft || "Press keys...") : simulateHotkey}
                 </button>
               </div>
             </div>

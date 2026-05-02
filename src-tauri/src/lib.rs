@@ -205,12 +205,34 @@ fn set_hotkeys(
     }
 
     set_hotkeys_value(Hotkeys { capture: capture_sc, simulate_paste: simulate_opt });
+    HOTKEY_RECORDING.store(false, Ordering::SeqCst);
     Ok(())
 }
 
 #[tauri::command]
-fn set_hotkey_recording(value: bool) {
+fn set_hotkey_recording(app: tauri::AppHandle, value: bool) {
     HOTKEY_RECORDING.store(value, Ordering::SeqCst);
+
+    // While recording, temporarily unregister global hotkeys so key combos don't trigger actions.
+    let hk = get_hotkeys();
+    let gs = app.global_shortcut();
+    if value {
+        let _ = gs.unregister(hk.capture);
+        if let Some(sim) = hk.simulate_paste {
+            let _ = gs.unregister(sim);
+        }
+    }
+}
+
+#[tauri::command]
+fn restore_hotkeys(app: tauri::AppHandle) {
+    HOTKEY_RECORDING.store(false, Ordering::SeqCst);
+    let hk = get_hotkeys();
+    let gs = app.global_shortcut();
+    let _ = gs.register(hk.capture);
+    if let Some(sim) = hk.simulate_paste {
+        let _ = gs.register(sim);
+    }
 }
 
 #[derive(Clone, Debug, Default)]
@@ -974,6 +996,7 @@ pub fn run() {
             set_main_min_size,
             set_hotkeys,
             set_hotkey_recording,
+            restore_hotkeys,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
