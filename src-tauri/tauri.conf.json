@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "tauri-app",
+  "productName": "CapturePro",
   "version": "0.1.0",
   "identifier": "com.admin.tauri-app",
   "build": {
@@ -24,6 +24,7 @@
         "fullscreen": true,
         "transparent": true,
         "decorations": false,
+        "resizable": false,
         "alwaysOnTop": true,
         "visible": false
       }

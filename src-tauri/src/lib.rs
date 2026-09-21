@@ -863,12 +863,14 @@ pub fn run() {
                 let (w, h) = get_main_min_size();
                 let _ = main.set_min_size(Some(tauri::LogicalSize::new(w, h)));
 
+                let app_handle_for_close = app.handle().clone();
                 let main_for_event = main.clone();
                 main.on_window_event(move |event| {
                     if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                        // Allow the close request to proceed.
+                        // Clicking X should quit the app (not hide to tray).
                         ALLOW_EXIT.store(true, Ordering::SeqCst);
-                        let _ = api;
+                        api.prevent_close();
+                        app_handle_for_close.exit(0);
                     }
 
                     if let tauri::WindowEvent::Resized(_) = event {
